@@ -61,6 +61,7 @@ from cogbench import Statmind      # noqa: E402
 import episode                     # noqa: E402
 import statdump                    # noqa: E402
 from botdex import Botdex          # noqa: E402
+import itemdex                     # noqa: E402
 
 DIRS = {
     "n": (0, -1), "ne": (1, -1), "e": (1, 0), "se": (1, 1),
@@ -75,6 +76,7 @@ K_WAIT = 261        # KP5
 K_ASCEND = 60       # '<'
 K_TAB = 9           # CMD_BS_TARGETING_NEXT_TARGET
 K_TARGET_CANCEL = 120  # 'x' -- CMD_BS_TARGETING_CANCEL
+KMOD_LCTRL = 64        # matches actions.json mods for EQUIP<n>
 
 
 # ------------------------------------------------------------------ fair view
@@ -157,6 +159,35 @@ class FairView:
                 q = (x + dx, y + dy)
                 if q not in self.world:
                     self.unknown.add(q)
+
+    def doors(self):
+        """Known door cells. `+` is closed and `/` open; both are walkable --
+        a closed door opens when walked into, which is why they must stay
+        routable even though the cell table reports them solid."""
+        return [p for p, ch in self.world.items() if ch in GLYPH_DOORS]
+
+    def doorway_posts(self, max_dist=10):
+        """Cells diagonally adjacent to a door, which is where you want to be
+        when outnumbered.
+
+        A doorway admits one robot at a time, and standing on the diagonal
+        rather than in line with it means the queue behind cannot shoot past the
+        one in front. Cogmind's robots rarely step diagonally around a blocker,
+        so they line up. It is the cheapest way for an under-built Cogmind to
+        turn 3-on-1 into three 1-on-1s.
+
+        Returns posts nearest-first, each as (post, door)."""
+        px, py = self.player
+        out = []
+        for d in self.doors():
+            if max(abs(d[0] - px), abs(d[1] - py)) > max_dist:
+                continue
+            for dx, dy in ((1, 1), (1, -1), (-1, 1), (-1, -1)):
+                post = (d[0] + dx, d[1] + dy)
+                if post in self.passable:
+                    out.append((post, d))
+        out.sort(key=lambda pd: max(abs(pd[0][0] - px), abs(pd[0][1] - py)))
+        return out
 
     def frontier(self, min_dist=5):
         """Known-walkable cells that touch an unexplored one -- where exploring
@@ -405,6 +436,13 @@ SCRIPTS = [
                and s["near"] is not None and s["near"] <= 1,
      "fire n"),
 
+    # Outnumbered and armed: funnel them rather than run. Fleeing in the open
+    # from three hostiles just means being shot in the back by three hostiles.
+    ("fight_doorway",
+     lambda s: s["armed"] and s["under_attack"] and s["hostiles"] >= 2
+               and s.get("doorway_near"),
+     "doorway 6"),
+
     ("flee_outnumbered",
      lambda s: s["under_attack"] and s["hostiles"] >= 3
                and s["near"] is not None and s["near"] <= 5,
@@ -418,6 +456,14 @@ SCRIPTS = [
     ("pickup_underfoot",
      lambda s: s["on_item"],
      "pickup"),
+
+    # Build before tactics. Both baselines died having lost five parts and
+    # attached nothing, holding working weapons -- they did not lose fights,
+    # they arrived at them naked. Only fires when not under fire; rebuilding
+    # mid-firefight is how you die holding a screwdriver.
+    ("build",
+     lambda s: s.get("build_action") is not None and not s["under_attack"],
+     "BUILD"),
 
     ("flee_unarmed",
      lambda s: not s["armed"] and s["under_attack"],
@@ -537,6 +583,7 @@ class Agent(Bot):
         self.last_sit = {}
         self.watch = False
         self.dex = Botdex()
+        self.idex = itemdex.Itemdex()
         self.prev_damage_taken = 0
         self.prev_volleys = 0
         self.fire_misfires = 0
@@ -757,6 +804,7 @@ class Agent(Bot):
             # Two consecutive presses that produced no volley means there is
             # nothing actually shootable, whatever the distances say.
             "can_fire": self.fire_misfires < 2,
+            "doorway_near": bool(self.view.doorway_posts(max_dist=8)),
             "all_harmless": all_harmless,
             "em_edge": em_edge,
             "dossier": [d["name"] for d in dossier],
@@ -795,12 +843,22 @@ class Agent(Bot):
         self.prev_sig = sig
 
         sit = self.situation(dump)
+        o = statdump.observation(dump)
+        rule, act = itemdex.next_build_action(self.idex, o, sit)
+        sit["build_action"] = act
+        sit["build_rule"] = rule
         self.last_sit = sit
         for name, guard, action in SCRIPTS:
             if self.suppressed.get(name, -1) > self.decisions:
                 continue
             try:
                 if guard(sit):
+                    if action == "BUILD":
+                        _, idx, item, why = sit["build_action"]
+                        self.script_counts["build:" + sit["build_rule"]] += 1
+                        self.last_script = "build:" + sit["build_rule"]
+                        self.say("  %s -> equip %s" % (why, item))
+                        return "equip %d" % idx
                     self.script_counts[name] += 1
                     self.last_script = name
                     return action
@@ -924,6 +982,29 @@ class Agent(Bot):
             # targeting panel, firing one volley in total.
             self.key(K_TARGET_CANCEL, K_TARGET_CANCEL, pause=0.3)
             return "fire"
+
+        if verb == "doorway":
+            posts = self.view.doorway_posts()
+            if not posts:
+                return "doorway: no door in range"
+            if me == posts[0][0] or any(me == p for p, _ in posts):
+                # Already posted. Hold the position and let them come to us --
+                # stepping away from the door is what breaks the funnel.
+                self.key(K_WAIT, 0, pause=0.25)
+                return "doorway: holding"
+            moved, msg = self.walk_toward({p for p, _ in posts[:4]},
+                                          int(rest[0]) if rest else 6, "doorway")
+            return msg
+
+        if verb == "equip":
+            # CMD_INVENTORY_EQUIP<n> is Ctrl+digit, and Cogmind numbers the
+            # inventory 1..9 then 0, so slot index 9 is the '0' key.
+            n = int(rest[0])
+            sym = ord("0") if n == 9 else ord(str(n + 1))
+            self.sm.tool("key", {"keysym": sym, "unicode": sym,
+                                 "modifiers": KMOD_LCTRL})
+            time.sleep(0.45)
+            return "equip inventory %d" % (n + 1)
 
         if verb == "pickup":
             # GET_ATTACH ('a'), not GET ('g'): it picks the part up *and* fits
