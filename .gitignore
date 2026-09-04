@@ -1,0 +1,18 @@
+# Model weights. Fetched, not authored -- see SETUP.md.
+models/
+
+# Third-party clone: noemica/cog-minder, for bots.json and the combat simulator.
+# Cloned rather than vendored so it can be updated independently.
+cog-minder/
+
+# Reproducible from COGMIND.exe via extract_proto.py --raw.
+schema/*.fdp
+
+__pycache__/
+*.pyc
+
+# ~/.gitignore_global excludes *.md, which would silently drop every document
+# here -- including notes/b17.1-luigiai.md, the reverse-engineering record this
+# work depends on. Repo rules take precedence over core.excludesfile.
+!*.md
+!notes/*.md

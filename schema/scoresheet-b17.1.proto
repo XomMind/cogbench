@@ -1,0 +1,2283 @@
+syntax = "proto3";
+
+package Protobuf;
+
+import "google/protobuf/descriptor.proto";
+
+enum DifficultyType {
+  DIFFICULTY_ROGUE = 0;
+  DIFFICULTY_ADVENTURER = 1;
+  DIFFICULTY_EXPLORER = 2;
+  DIFFICULTY_WIZARD_MODE = 3;
+}
+
+enum SpecialModeType {
+  SPECIAL_MODE_NONE = 0;
+  SPECIAL_MODE_LAUNCHERS = 1;
+  SPECIAL_MODE_PAY2BUY = 2;
+  SPECIAL_MODE_ARCADE = 3;
+  SPECIAL_MODE_ABOMINATIONS = 4;
+  SPECIAL_MODE_RPGLIKE = 5;
+  SPECIAL_MODE_BATTLE_ROYALE = 6;
+  SPECIAL_MODE_PLAYER2 = 7;
+  SPECIAL_MODE_FORBIDDEN_LORE = 8;
+  SPECIAL_MODE_VOLATILE = 9;
+  SPECIAL_MODE_SAULER = 10;
+  SPECIAL_MODE_POLYMIND = 11;
+}
+
+enum MapType {
+  MAP_NONE = 0;
+  MAP_SAN = 1;
+  MAP_YRD = 2;
+  MAP_MAT = 3;
+  MAP_FAC = 4;
+  MAP_RES = 5;
+  MAP_ACC = 6;
+  MAP_SUR = 7;
+  MAP_MIN = 8;
+  MAP_EXI = 9;
+  MAP_STO = 10;
+  MAP_REC = 11;
+  MAP_SCR = 37;
+  MAP_WAS = 12;
+  MAP_GAR = 13;
+  MAP_DSF = 35;
+  MAP_SUB = 36;
+  MAP_LOW = 14;
+  MAP_UPP = 15;
+  MAP_PRO = 16;
+  MAP_DEE = 17;
+  MAP_ZIO = 18;
+  MAP_DAT = 19;
+  MAP_ZHI = 20;
+  MAP_WAR = 21;
+  MAP_EXT = 22;
+  MAP_CET = 23;
+  MAP_ARC = 24;
+  MAP_HUB = 25;
+  MAP_ARM = 26;
+  MAP_LAB = 27;
+  MAP_QUA = 28;
+  MAP_TES = 29;
+  MAP_SEC = 30;
+  MAP_FRG = 38;
+  MAP_COM = 31;
+  MAP_AC0 = 32;
+  MAP_LAI = 33;
+  MAP_TOW = 34;
+  MAP_W00 = 1000;
+  MAP_W01 = 1001;
+  MAP_W02 = 1002;
+  MAP_W03 = 1003;
+  MAP_W04 = 1004;
+  MAP_W05 = 1005;
+  MAP_W06 = 1006;
+  MAP_W07 = 1007;
+  MAP_W08 = 1008;
+  MAP_W09 = 1009;
+}
+
+enum HeatLevelType {
+  HEAT_COOL = 0;
+  HEAT_WARM = 1;
+  HEAT_HOT = 2;
+  HEAT_WARNING = 3;
+  HEAT_DANGER = 4;
+  HEAT_CRITICAL = 5;
+}
+
+enum MoveModeType {
+  MOVE_TREAD = 0;
+  MOVE_LEG = 1;
+  MOVE_WHEEL = 2;
+  MOVE_HOVER = 3;
+  MOVE_FLIGHT = 4;
+  MOVE_IMMOBILE = 5;
+  MOVE_CORE = 6;
+}
+
+enum UiLayoutType {
+  UI_LAYOUT_60 = 0;
+  UI_LAYOUT_45 = 1;
+  UI_LAYOUT_45_MODAL = 2;
+}
+
+enum MovementInputType {
+  MOVEMENT_INPUT_NUMPAD = 0;
+  MOVEMENT_INPUT_ARROWS = 1;
+  MOVEMENT_INPUT_MOUSE = 2;
+  MOVEMENT_INPUT_VI = 3;
+}
+
+enum FullscreenType {
+  FULLSCREEN_NONE = 0;
+  FULLSCREEN_TRUE = 1;
+  FULLSCREEN_BORDERLESS = 2;
+}
+
+enum SteamType {
+  STEAM_NONE = 0;
+  STEAM_INITIALIZED = 1;
+  STEAM_UNINITIALIZED = 2;
+  STEAM_DECK = 3;
+}
+
+enum SchematicType {
+  SCHEMATIC_TYPE_ITEM = 0;
+  SCHEMATIC_TYPE_ROBOT = 1;
+}
+
+enum SchematicMethodType {
+  SCHEMATIC_METHOD_FREE = 0;
+  SCHEMATIC_METHOD_HACKED = 1;
+  SCHEMATIC_METHOD_SCANALYZED = 2;
+  SCHEMATIC_METHOD_DOWNLOADED = 3;
+  SCHEMATIC_METHOD_EXTRACTED = 4;
+  SCHEMATIC_METHOD_REPORTED = 5;
+  SCHEMATIC_METHOD_ZIONITE_INTEL = 6;
+  SCHEMATIC_METHOD_ARCHIVE = 7;
+  SCHEMATIC_METHOD_EXTRAPOLATED = 8;
+}
+
+enum StudyMethodType {
+  STUDY_METHOD_FREE = 0;
+  STUDY_METHOD_HACKED = 1;
+  STUDY_METHOD_ARCHIVE = 2;
+}
+
+message PingRequest {
+}
+
+message PingResponse {
+  uint64 server_timestamp = 1;
+  bytes request_public_key = 2;
+}
+
+message PostScoresheetRequest {
+  .Protobuf.Scoresheet scoresheet = 1;
+  string textual_scoresheet = 2;
+}
+
+message PostScoresheetResponse {
+  string url = 1;
+  string error_message = 2;
+}
+
+message Submission {
+  message CreatedAt {
+    uint64 unix = 1;
+  }
+
+  message Envelope {
+    string ip = 1;
+    string address = 2;
+    string userAgent = 3;
+  }
+
+  string id = 1;
+  .Protobuf.Submission.CreatedAt createdAt = 2;
+  .Protobuf.Submission.Envelope envelope = 3;
+  .Protobuf.Scoresheet scoresheet = 4;
+}
+
+message Scoresheet {
+  .Protobuf.Header header = 1;
+  .Protobuf.Performance performance = 2;
+  .Protobuf.Bonus bonus = 3;
+  .Protobuf.Cogmind cogmind = 4;
+  .Protobuf.Parts parts = 5;
+  .Protobuf.PeakState peak_state = 6;
+  .Protobuf.Favorites favorites = 7;
+  .Protobuf.ClassDistribution class_distribution = 8;
+  .Protobuf.HistoryEventWin history_event_win = 9;
+  .Protobuf.LastMessages last_messages = 10;
+  .Protobuf.Map map = 11;
+  .Protobuf.BestStates best_states = 12;
+  .Protobuf.AlienTechUsed alien_tech_used = 13;
+  .Protobuf.Achievements achievements = 14;
+  .Protobuf.Challenges challenges = 15;
+  .Protobuf.CogshopPurchases cogshop_purchases = 16;
+  .Protobuf.PolymindHostKillLeaderboard polymind_host_kill_leaderboard = 22;
+  .Protobuf.Game game = 17;
+  .Protobuf.Options options = 18;
+  .Protobuf.Meta meta = 19;
+  .Protobuf.Stats stats = 20;
+  .Protobuf.Route route = 21;
+}
+
+message Header {
+  string filename = 1;
+  string version = 2;
+  string build = 10;
+  .Protobuf.DifficultyType difficulty = 3;
+  string run_end_date = 4;
+  string run_end_time = 5;
+  .Protobuf.SpecialModeType special_mode = 6;
+  string player_name = 7;
+  string run_result = 8;
+  bool win = 9;
+}
+
+message Performance {
+  message Entry {
+    int32 count = 1;
+    int32 points = 2;
+  }
+
+  int32 total_score = 1;
+  .Protobuf.Performance.Entry evolutions = 2;
+  .Protobuf.Performance.Entry regions_visited = 3;
+  .Protobuf.Performance.Entry robots_destroyed = 4;
+  .Protobuf.Performance.Entry value_destroyed = 5;
+  .Protobuf.Performance.Entry prototypes_identified = 7;
+  .Protobuf.Performance.Entry alien_tech_used = 8;
+  .Protobuf.Performance.Entry bonus = 9;
+}
+
+message Bonus {
+  int32 devolution = 1;
+  int32 fragile_parts = 2;
+  int32 gauntlet = 3;
+  int32 inhibited_evolution = 4;
+  int32 no_salvage = 5;
+  int32 pure_core = 6;
+  int32 scavenger = 7;
+  int32 simple_hacker = 8;
+  int32 sticky_parts = 9;
+  int32 super_gauntlet = 10;
+  int32 trapped = 11;
+  int32 unstable_evolution = 12;
+  int32 polymind_skill = 79;
+  int32 pacifist = 13;
+  int32 triggered_high_security = 14;
+  int32 triggered_max_security = 15;
+  int32 high_alert_combat_kills = 16;
+  int32 follower_combat_kills = 17;
+  int32 prayed_to_x01v1 = 97;
+  int32 major_x01v1_interference = 98;
+  int32 hunted_by_unchained = 96;
+  int32 destroyed_unchained = 95;
+  int32 spooked_cyphr = 99;
+  int32 forged_quantum_companion = 80;
+  int32 awakened_behemoth_slayer = 81;
+  int32 finished_modified_em_gauss = 82;
+  int32 built_pl3xns_obliterator = 90;
+  int32 installed_lc_capacitor = 83;
+  int32 subatomizer_sterilization = 89;
+  int32 entered_garrisons = 18;
+  int32 used_rif_installer = 19;
+  int32 entered_dsfs = 77;
+  int32 network_hubs_disabled = 20;
+  int32 aligned_with_farcom = 21;
+  int32 delivered_subcon_basin = 88;
+  int32 registered_with_ufd = 86;
+  int32 met_optimus_in_hq = 87;
+  int32 met_data_miner = 22;
+  int32 used_data_conduit = 23;
+  int32 met_imprinter = 24;
+  int32 was_imprinted = 25;
+  int32 destroyed_zimprinter = 26;
+  int32 triggered_deep_caves_wall = 27;
+  int32 exposed_golem_chamber = 28;
+  int32 acquired_eca = 84;
+  int32 met_zhirov = 29;
+  int32 met_warlord_at_base = 30;
+  int32 mainc_attacked_warlord = 31;
+  int32 warlord_defense_kills = 32;
+  int32 mainc_attacked_proxy_base = 100;
+  int32 built_enhanced_grunts = 33;
+  int32 a7_reached_mainframe = 34;
+  int32 met_r17_at_cetus = 35;
+  int32 read_decrypted_archives = 36;
+  int32 bested_vlgr5 = 85;
+  int32 found_hidden_lab = 37;
+  int32 decrypted_a0_command = 38;
+  int32 used_core_reset_matrix = 39;
+  int32 hacked_protovariant = 40;
+  int32 met_r17_at_research = 41;
+  int32 met_warlord_at_research = 42;
+  int32 invited_to_help_at_command = 75;
+  int32 hacked_god_mode = 43;
+  int32 scanned_by_researcher = 44;
+  int32 pursued_by_intercept = 45;
+  int32 acquired_sgemp = 46;
+  int32 met_sigix = 47;
+  int32 destroyed_superfortress = 91;
+  int32 met_optimus_at_protoforge = 92;
+  int32 executed_drillbomb_mission = 94;
+  int32 optimus_survived_to_0b1 = 93;
+  int32 detonated_l2_power_cell = 48;
+  int32 activated_exoskeleton = 49;
+  int32 integrated_exoskeleton = 78;
+  int32 delivered_sgemp = 50;
+  int32 recovered_sigix_corpse = 51;
+  int32 escaped_with_sigix = 52;
+  int32 escaped_with_exosigix = 53;
+  int32 destroyed_mainc_guards = 54;
+  int32 met_mainc = 55;
+  int32 hacked_mainc = 56;
+  int32 destroyed_mainc_shell = 57;
+  int32 destroyed_mainc = 58;
+  int32 zhirov_destroyed_mainc = 59;
+  int32 used_0b10_conduit = 60;
+  int32 met_warlord_at_command = 76;
+  int32 met_architect = 61;
+  int32 started_test_138b = 62;
+  int32 started_test_138c = 63;
+  int32 destroyed_a8 = 64;
+  int32 destroyed_a6 = 65;
+  int32 destroyed_a5 = 66;
+  int32 destroyed_a4 = 67;
+  int32 destroyed_a3 = 68;
+  int32 destroyed_a2 = 69;
+  int32 destroyed_architect = 70;
+  int32 win = 71;
+  int32 win_speed = 72;
+  int32 challenge_win = 73;
+  int32 friendly_fire = 74;
+}
+
+message Location {
+  sint32 depth = 1;
+  .Protobuf.MapType map = 2;
+}
+
+message Cogmind {
+  message VariableValue {
+    int32 current = 1;
+    int32 maximum = 2;
+  }
+
+  message Corruption {
+    int32 value = 1;
+    bool membrane = 2;
+  }
+
+  message Temperature {
+    .Protobuf.HeatLevelType heat = 1;
+    int32 value = 2;
+    bool thermoelectric_network = 3;
+  }
+
+  message Movement {
+    .Protobuf.MoveModeType mode = 1;
+    int32 speed = 2;
+    int32 overweight_factor = 3;
+    int32 teleportitis_level = 4;
+  }
+
+  .Protobuf.Cogmind.VariableValue core_integrity = 1;
+  .Protobuf.Cogmind.VariableValue matter = 2;
+  .Protobuf.Cogmind.VariableValue energy = 3;
+  int32 system_corruption = 4;
+  .Protobuf.Cogmind.Corruption corruption = 8;
+  .Protobuf.Cogmind.Temperature temperature = 5;
+  .Protobuf.Cogmind.Movement movement = 7;
+  .Protobuf.Location location = 6;
+}
+
+message PartSection {
+  int32 slots = 1;
+  repeated string parts = 2;
+}
+
+message Parts {
+  .Protobuf.PartSection power = 1;
+  .Protobuf.PartSection propulsion = 2;
+  .Protobuf.PartSection utility = 3;
+  .Protobuf.PartSection weapon = 4;
+  .Protobuf.PartSection inventory = 5;
+}
+
+message PeakState {
+  .Protobuf.PartSection power = 1;
+  .Protobuf.PartSection propulsion = 2;
+  .Protobuf.PartSection utility = 3;
+  .Protobuf.PartSection weapon = 4;
+  .Protobuf.PartSection inventory = 5;
+  int32 rating = 6;
+}
+
+message Favorites {
+  message Power {
+    string overall = 1;
+    string engine = 2;
+    string power_core = 3;
+    string reactor = 4;
+  }
+
+  message Propulsion {
+    string overall = 1;
+    string treads = 2;
+    string leg = 4;
+    string wheel = 3;
+    string hover_unit = 5;
+    string flight_unit = 6;
+  }
+
+  message Utility {
+    string overall = 1;
+    string device = 2;
+    string storage = 3;
+    string processor = 4;
+    string hackware = 5;
+    string protection = 6;
+    string artifact = 7;
+  }
+
+  message Weapon {
+    string overall = 1;
+    string energy_gun = 2;
+    string energy_cannon = 3;
+    string ballistic_gun = 4;
+    string ballistic_cannon = 5;
+    string launcher = 6;
+    string special_weapon = 7;
+    string impact_weapon = 8;
+    string slashing_weapon = 9;
+    string piercing_weapon = 10;
+    string special_melee_weapon = 11;
+  }
+
+  .Protobuf.Favorites.Power power = 1;
+  .Protobuf.Favorites.Propulsion propulsion = 2;
+  .Protobuf.Favorites.Utility utility = 3;
+  .Protobuf.Favorites.Weapon weapon = 4;
+}
+
+message ClassDistribution {
+  message ClassEntry {
+    string name = 1;
+    int32 percent = 2;
+  }
+
+  repeated .Protobuf.ClassDistribution.ClassEntry classes = 1;
+}
+
+message LastMessages {
+  repeated string messages = 1;
+}
+
+message HistoryEventWin {
+  int32 turn = 1;
+  string event = 2;
+}
+
+message Map {
+  repeated string lines = 1;
+}
+
+message BestStates {
+  int32 heat_dissipation = 1;
+  int32 coolant_potential = 2;
+  int32 energy_generation = 3;
+  int32 energy_capacity = 4;
+  int32 matter_stores = 5;
+  int32 matter_capacity = 6;
+  int32 sight_range = 7;
+  int32 robot_scan_range = 8;
+  int32 terrain_scan_range = 9;
+  int32 terrain_scan_density = 10;
+  int32 ecm_strength = 11;
+  int32 jamming_range = 12;
+  int32 cloak_strength = 13;
+  int32 power_amplification = 14;
+  int32 additional_mass_support = 15;
+  int32 base_temperature = 16;
+  int32 em_shielding = 17;
+  int32 corruption_containment = 18;
+  int32 corruption_block = 61;
+  int32 heat_shielding = 19;
+  int32 armor_coverage = 20;
+  int32 resistance_ki = 21;
+  int32 resistance_th = 22;
+  int32 resistance_ex = 23;
+  int32 resistance_em = 24;
+  int32 resistance_i = 25;
+  int32 resistance_s = 26;
+  int32 resistance_p = 27;
+  int32 core_shielding = 28;
+  int32 power_shielding = 29;
+  int32 propulsion_shielding = 30;
+  int32 utility_shielding = 31;
+  int32 weapon_shielding = 32;
+  int32 point_defense_rating = 33;
+  int32 projectile_deflection = 64;
+  int32 thermal_conversion = 34;
+  int32 reclamation_efficiency = 35;
+  int32 weapon_cycling = 36;
+  int32 melee_speed_boost = 37;
+  int32 phase_shifting = 38;
+  int32 evasion = 39;
+  int32 targeting_accuracy = 40;
+  int32 melee_accuracy = 41;
+  int32 launcher_accuracy = 42;
+  int32 target_analysis = 43;
+  int32 core_analysis = 44;
+  int32 armor_integrity_analysis = 45;
+  int32 recoil_reduction = 46;
+  int32 matter_filtering = 47;
+  int32 energy_filtering = 48;
+  int32 particle_charging = 49;
+  int32 kinecelleration = 50;
+  int32 force_boost = 63;
+  int32 momentum_increase = 51;
+  int32 overload_amplification = 52;
+  int32 overload_regulation = 53;
+  int32 salvage_targeting = 54;
+  int32 stasis_canceling = 55;
+  int32 offensive_hacking = 56;
+  int32 defensive_hacking = 57;
+  int32 relay_coupler_types = 58;
+  int32 relay_coupler_value = 59;
+  int32 authchip_count = 60;
+  int32 trap_extractor_capacity = 62;
+}
+
+message AlienTechUsed {
+  repeated string parts = 1;
+}
+
+message Achievements {
+  repeated string achievements = 1;
+}
+
+message Challenges {
+  repeated string challenges = 1;
+}
+
+message CogshopPurchases {
+  message Purchase {
+    string name = 1;
+    int32 cost = 2;
+  }
+
+  repeated .Protobuf.CogshopPurchases.Purchase purchases = 1;
+}
+
+message PolymindHostKillLeaderboard {
+  message HostRecord {
+    string name = 1;
+    .Protobuf.Location location = 2;
+    int32 kills = 3;
+  }
+
+  repeated .Protobuf.PolymindHostKillLeaderboard.HostRecord host_records = 1;
+}
+
+message Game {
+  string world_seed = 1;
+  bool world_seed_is_manual = 2;
+  string run_time = 3;
+  string cumulative_hours = 4;
+  string run_start_date = 5;
+  string run_end_date = 6;
+  int32 run_sessions = 7;
+  int32 run_loads = 8;
+  .Protobuf.DifficultyType difficulty = 9;
+  .Protobuf.SpecialModeType special_mode = 10;
+  int32 game_number = 11;
+  repeated int32 game_counts = 12;
+  sint32 win_type = 13;
+  int32 win_total = 14;
+  repeated int32 win_type_history = 15;
+  int32 lore_percent = 16;
+  int32 gallery_percent = 17;
+  int32 achievement_percent = 18;
+  bool wizard_mode_run = 19;
+}
+
+message Options {
+  .Protobuf.UiLayoutType layout = 14;
+  bool ascii = 1;
+  bool keyboard = 2;
+  .Protobuf.MovementInputType movement = 3;
+  bool keybinds = 4;
+  .Protobuf.FullscreenType fullscreen = 5;
+  string font_set = 6;
+  int32 map_width = 7;
+  int32 map_height = 8;
+  int32 zoom_use = 13;
+  bool tactical_hud = 9;
+  string render_filters_map = 10;
+  string render_filters = 11;
+  .Protobuf.SteamType steam = 12;
+}
+
+message Meta {
+  string run_guid = 1;
+  bytes player_public_key = 2;
+  string player_guid = 3;
+  int32 player_id = 4;
+  int32 run_id = 5;
+}
+
+message Route {
+  message Entry {
+    message DiscoveredExit {
+      .Protobuf.MapType destination = 1;
+      bool destination_known = 2;
+      bool reached = 3;
+      int32 count = 4;
+    }
+
+    message HistoryEvent {
+      int32 turn = 1;
+      string event = 2;
+    }
+
+    message ObtainedSchematic {
+      string name = 1;
+      .Protobuf.SchematicType type = 2;
+      .Protobuf.SchematicMethodType method = 3;
+    }
+
+    message FabricatedObject {
+      string name = 1;
+      int32 count = 2;
+      bool preloaded = 3;
+      bool authchip = 4;
+    }
+
+    message RepairedObject {
+      string name = 1;
+      int32 integrity = 2;
+      bool broken = 3;
+      bool corrupted = 4;
+    }
+
+    message ObtainedStudy {
+      string name = 1;
+      .Protobuf.StudyMethodType method = 3;
+    }
+
+    message Factors {
+      repeated int32 factor_one = 1;
+    }
+
+    .Protobuf.Location location = 1;
+    repeated .Protobuf.Route.Entry.DiscoveredExit discovered_exits = 2;
+    string dominant_class = 4;
+    repeated .Protobuf.Route.Entry.HistoryEvent history_events = 5;
+    repeated .Protobuf.Route.Entry.ObtainedSchematic obtained_schematics = 6;
+    repeated .Protobuf.Route.Entry.FabricatedObject fabricated_objects = 7;
+    repeated .Protobuf.Route.Entry.RepairedObject repaired_objects = 8;
+    repeated .Protobuf.Route.Entry.ObtainedStudy obtained_studies = 9;
+    .Protobuf.Route.Entry.Factors factors = 10;
+    .Protobuf.Stats stats = 3;
+  }
+
+  repeated .Protobuf.Route.Entry entries = 1;
+}
+
+message Stats {
+  message Build {
+    message SlotsEvolved {
+      int32 overall = 1;
+      int32 power = 2;
+      int32 propulsion = 3;
+      int32 utility = 4;
+      int32 weapon = 5;
+    }
+
+    message PartsAttached {
+      message Power {
+        int32 overall = 1;
+        int32 engine = 2;
+        int32 core = 3;
+        int32 reactor = 4;
+      }
+
+      message Propulsion {
+        int32 overall = 1;
+        int32 treads = 2;
+        int32 leg = 3;
+        int32 wheel = 4;
+        int32 hover = 5;
+        int32 flight = 6;
+      }
+
+      message Utility {
+        int32 overall = 1;
+        int32 device = 2;
+        int32 storage = 3;
+        int32 processor = 4;
+        int32 hackware = 5;
+        int32 protection = 6;
+        int32 artifact = 7;
+      }
+
+      message Weapon {
+        int32 overall = 1;
+        int32 energy_gun = 2;
+        int32 energy_cannon = 3;
+        int32 ballistic_gun = 4;
+        int32 ballistic_cannon = 5;
+        int32 launcher = 6;
+        int32 special_weapon = 7;
+        int32 impact_weapon = 8;
+        int32 slashing_weapon = 9;
+        int32 piercing_weapon = 10;
+        int32 special_melee_weapon = 11;
+      }
+
+      message CorruptedParts {
+        int32 overall = 1;
+        int32 system_corruption = 2;
+      }
+
+      int32 overall = 1;
+      .Protobuf.Stats.Build.PartsAttached.Power power = 2;
+      .Protobuf.Stats.Build.PartsAttached.Propulsion propulsion = 3;
+      .Protobuf.Stats.Build.PartsAttached.Utility utility = 4;
+      .Protobuf.Stats.Build.PartsAttached.Weapon weapon = 5;
+      int32 unidentified_prototypes = 6;
+      .Protobuf.Stats.Build.PartsAttached.CorruptedParts corrupted_parts = 7;
+    }
+
+    message PartsLost {
+      int32 overall = 1;
+      int32 power = 2;
+      int32 propulsion = 3;
+      int32 utility = 4;
+      int32 weapon = 5;
+      int32 highest_loss_streak = 6;
+      int32 to_critical_strikes = 7;
+    }
+
+    message AverageSpares {
+      int32 overall = 1;
+      int32 power = 2;
+      int32 propulsion = 3;
+      int32 utility = 4;
+      int32 weapon = 5;
+      int32 special = 6;
+    }
+
+    message UnusedSpares {
+      int32 overall = 1;
+      int32 power = 2;
+      int32 propulsion = 3;
+      int32 utility = 4;
+      int32 weapon = 5;
+      int32 special = 6;
+    }
+
+    message AverageSlotUsagePercent {
+      int32 overall = 1;
+      int32 engine = 2;
+      int32 core = 3;
+      int32 reactor = 4;
+      int32 treads = 5;
+      int32 leg = 6;
+      int32 wheel = 7;
+      int32 hover = 8;
+      int32 flight = 9;
+      int32 device = 10;
+      int32 storage = 11;
+      int32 processor = 12;
+      int32 hackware = 13;
+      int32 protection = 14;
+      int32 artifact = 15;
+      int32 energy_gun = 16;
+      int32 energy_cannon = 17;
+      int32 ballistic_gun = 18;
+      int32 ballistic_cannon = 19;
+      int32 launcher = 20;
+      int32 special_weapon = 21;
+      int32 impact_weapon = 22;
+      int32 slashing_weapon = 23;
+      int32 piercing_weapon = 24;
+      int32 special_melee_weapon = 25;
+    }
+
+    message PeakBuildRating {
+      int32 overall = 1;
+      int32 average_rating = 2;
+      int32 on_entrance = 3;
+    }
+
+    message HeaviestBuild {
+      int32 overall = 1;
+      int32 greatest_support = 2;
+      int32 greatest_overweight_times = 3;
+      int32 average_overweight_times = 4;
+    }
+
+    message LargestInventoryCapacity {
+      int32 overall = 1;
+      int32 average_capacity = 2;
+      int32 most_carried = 3;
+      int32 average_carried = 4;
+      int32 final_capacity = 5;
+      int32 final_carried = 6;
+    }
+
+    message ScrapEngineConsumption {
+      int32 overall = 1;
+      int32 constructs_created = 2;
+      int32 constructs_modified = 3;
+    }
+
+    message ScrapSuitUsage {
+      int32 overall = 1;
+      int32 parts_cannibalized = 2;
+    }
+
+    message TransmogrifiedParts {
+      int32 overall = 1;
+      int32 integrity_recovered = 2;
+    }
+
+    .Protobuf.Stats.Build.SlotsEvolved slots_evolved = 1;
+    .Protobuf.Stats.Build.PartsAttached parts_attached = 2;
+    .Protobuf.Stats.Build.PartsLost parts_lost = 3;
+    .Protobuf.Stats.Build.AverageSpares average_spares = 10;
+    .Protobuf.Stats.Build.UnusedSpares unused_spares = 11;
+    .Protobuf.Stats.Build.AverageSlotUsagePercent average_slot_usage_percent = 4;
+    .Protobuf.Stats.Build.PeakBuildRating peak_build_rating = 9;
+    int32 avg_prop_armor_coverage = 12;
+    int32 naked_turns = 5;
+    .Protobuf.Stats.Build.HeaviestBuild heaviest_build = 6;
+    .Protobuf.Stats.Build.LargestInventoryCapacity largest_inventory_capacity = 7;
+    .Protobuf.Stats.Build.ScrapEngineConsumption scrap_engine_consumption = 8;
+    .Protobuf.Stats.Build.ScrapSuitUsage scrap_suit_usage = 13;
+    .Protobuf.Stats.Build.TransmogrifiedParts transmogrified_parts = 14;
+  }
+
+  message Resources {
+    message MatterCollected {
+      int32 overall = 1;
+      int32 remotely = 2;
+    }
+
+    message SalvageCreated {
+      int32 overall = 1;
+      int32 parts = 2;
+    }
+
+    message PartsFieldRecycled {
+      int32 overall = 1;
+      int32 retrieved_matter = 2;
+    }
+
+    message PartsSelfDestructed {
+      int32 overall = 1;
+      int32 prevented = 2;
+    }
+
+    message PartsRestored {
+      int32 overall = 1;
+      int32 broken = 2;
+      int32 faulty = 3;
+    }
+
+    .Protobuf.Stats.Resources.MatterCollected matter_collected = 1;
+    .Protobuf.Stats.Resources.SalvageCreated salvage_created = 2;
+    int32 haulers_intercepted = 3;
+    int32 recyclers_shooed = 4;
+    .Protobuf.Stats.Resources.PartsFieldRecycled parts_field_recycled = 5;
+    .Protobuf.Stats.Resources.PartsSelfDestructed parts_self_destructed = 6;
+    .Protobuf.Stats.Resources.PartsRestored parts_restored = 7;
+  }
+
+  message Kills {
+    message CombatHostilesDestroyed {
+      int32 overall = 1;
+      int32 melee = 2;
+      int32 guns = 3;
+      int32 cannons = 4;
+      int32 aoe = 5;
+    }
+
+    message ClassesDestroyed {
+      int32 overall = 1;
+      int32 worker = 2;
+      int32 builder = 3;
+      int32 tunneler = 4;
+      int32 hauler = 5;
+      int32 recycler = 6;
+      int32 carrier = 7;
+      int32 minesweeper = 8;
+      int32 mechanic = 9;
+      int32 operator = 10;
+      int32 drone = 11;
+      int32 turret = 12;
+      int32 watcher = 13;
+      int32 swarmer = 14;
+      int32 cutter = 96;
+      int32 saboteur = 15;
+      int32 grunt = 16;
+      int32 brawler = 17;
+      int32 duelist = 18;
+      int32 protector = 19;
+      int32 researcher = 20;
+      int32 sentry = 21;
+      int32 demolisher = 22;
+      int32 specialist = 23;
+      int32 hunter = 24;
+      int32 programmer = 25;
+      int32 heavy = 95;
+      int32 q_series = 26;
+      int32 behemoth = 27;
+      int32 compactor = 28;
+      int32 armor_guard = 114;
+      int32 cetus_guard = 29;
+      int32 quarantine_guard = 30;
+      int32 s7_guard = 31;
+      int32 m_guard = 32;
+      int32 m_shell_atk = 98;
+      int32 m_shell_def = 99;
+      int32 enhanced_grunt = 33;
+      int32 enhanced_sentry = 34;
+      int32 enhanced_demolisher = 94;
+      int32 enhanced_hunter = 35;
+      int32 enhanced_programmer = 36;
+      int32 enhanced_qseries = 93;
+      int32 lightning = 37;
+      int32 clone_special = 122;
+      int32 hotshot = 116;
+      int32 decapitator = 117;
+      int32 immortal = 118;
+      int32 overlord = 119;
+      int32 tracker = 38;
+      int32 combat_programmer = 39;
+      int32 investigator = 40;
+      int32 striker = 41;
+      int32 executioner = 42;
+      int32 superbehemoth = 43;
+      int32 alpha_7 = 44;
+      int32 fortress = 45;
+      int32 vseries = 120;
+      int32 protovariant_g = 46;
+      int32 protovariant_l = 47;
+      int32 protovariant_y = 48;
+      int32 protovariant_d = 49;
+      int32 protovariant_x = 50;
+      int32 protovariant_h = 51;
+      int32 protovariant_p = 52;
+      int32 artisan = 102;
+      int32 cobbler = 103;
+      int32 subdweller = 101;
+      int32 bolteater = 108;
+      int32 federalist = 109;
+      int32 explorer = 110;
+      int32 ranger = 111;
+      int32 guru = 112;
+      int32 scientist = 113;
+      int32 scrapper = 104;
+      int32 elite = 105;
+      int32 scrapoid = 106;
+      int32 scraphulk = 107;
+      int32 botcube = 115;
+      int32 zionite = 53;
+      int32 z_technician = 54;
+      int32 z_courier = 55;
+      int32 z_light = 56;
+      int32 z_heavy = 57;
+      int32 z_ex = 58;
+      int32 decomposer = 59;
+      int32 packrat = 60;
+      int32 samaritan = 61;
+      int32 tinkerer = 62;
+      int32 demented = 63;
+      int32 furnace = 64;
+      int32 parasite = 65;
+      int32 thief = 66;
+      int32 master_thief = 67;
+      int32 assembler = 68;
+      int32 assembled = 69;
+      int32 golem = 70;
+      int32 surgeon = 71;
+      int32 wasp = 72;
+      int32 thug = 73;
+      int32 savage = 74;
+      int32 butcher = 75;
+      int32 bouncer = 76;
+      int32 martyr = 77;
+      int32 guerrilla = 78;
+      int32 wizard = 79;
+      int32 marauder = 80;
+      int32 fireman = 81;
+      int32 mutant = 82;
+      int32 infiltrator = 100;
+      int32 sapper = 97;
+      int32 commander = 83;
+      int32 knight = 84;
+      int32 troll = 85;
+      int32 dragon = 86;
+      int32 hydra = 87;
+      int32 borebot = 88;
+      int32 unchained = 121;
+      int32 revision = 89;
+      int32 abomination = 90;
+      int32 anomaly = 91;
+      int32 player = 92;
+    }
+
+    message BestKillStreak {
+      int32 overall = 1;
+      int32 combat_bots_only = 2;
+    }
+
+    message MaxKillsInSingleTurn {
+      int32 overall = 1;
+      int32 gunslinging = 2;
+      int32 exploded = 3;
+      int32 melee = 4;
+    }
+
+    .Protobuf.Stats.Kills.CombatHostilesDestroyed combat_hostiles_destroyed = 1;
+    .Protobuf.Stats.Kills.ClassesDestroyed classes_destroyed = 2;
+    .Protobuf.Stats.Kills.BestKillStreak best_kill_streak = 3;
+    .Protobuf.Stats.Kills.MaxKillsInSingleTurn max_kills_in_single_turn = 4;
+    int32 uniques_npcs_destroyed = 5;
+    repeated string list_of_uniques_npcs_destroyed = 6;
+  }
+
+  message Combat {
+    message HostileShotsFired {
+      message Hits {
+        int32 overall = 1;
+        int32 melee = 2;
+        int32 projectile = 3;
+        int32 aoe = 4;
+      }
+
+      message CriticalStrikes {
+        int32 overall = 1;
+        int32 actively_blocked = 2;
+      }
+
+      message PartDisruptions {
+        int32 overall = 1;
+        int32 actively_blocked = 2;
+      }
+
+      int32 overall = 1;
+      int32 missed = 2;
+      int32 intercepted = 3;
+      int32 deflected = 4;
+      .Protobuf.Stats.Combat.HostileShotsFired.Hits hits = 5;
+      .Protobuf.Stats.Combat.HostileShotsFired.CriticalStrikes critical_strikes = 6;
+      .Protobuf.Stats.Combat.HostileShotsFired.PartDisruptions part_disruptions = 7;
+    }
+
+    message DamageTaken {
+      int32 overall = 1;
+      int32 core = 2;
+      int32 absorbed_by_shields = 3;
+      int32 reduced_by_siege_mode = 4;
+      int32 redirected_to_core = 5;
+      int32 redirected_to_shielding = 6;
+      int32 ignored_by_resistances = 8;
+      int32 regen_repair_parts = 7;
+    }
+
+    message VolleysFired {
+      int32 overall = 1;
+      int32 largest = 2;
+      int32 hottest = 3;
+    }
+
+    message ShotsFired {
+      message SecondaryTargets {
+        int32 overall = 1;
+        int32 max_gunslinging_chain = 2;
+      }
+
+      int32 overall = 1;
+      int32 gun = 2;
+      int32 cannon = 3;
+      int32 launcher = 4;
+      int32 special = 5;
+      int32 kinetic = 6;
+      int32 thermal = 7;
+      int32 explosive = 8;
+      int32 electromagnetic = 9;
+      int32 impact = 10;
+      int32 slashing = 11;
+      int32 piercing = 12;
+      int32 entropic = 13;
+      int32 phasic = 14;
+      int32 robot_hit_streak = 15;
+      int32 robot_miss_streak = 16;
+      int32 penetration_max = 17;
+      .Protobuf.Stats.Combat.ShotsFired.SecondaryTargets secondary_targets = 18;
+      int32 capacitor = 19;
+      int32 autonomous = 20;
+    }
+
+    message ShotsHitRobots {
+      message CriticalStrikes {
+        int32 overall = 1;
+        int32 burn = 2;
+        int32 meltdown = 3;
+        int32 destroy = 4;
+        int32 blast = 5;
+        int32 corrupt = 6;
+        int32 smash = 7;
+        int32 sever = 8;
+        int32 impale = 9;
+        int32 detonate = 10;
+        int32 sunder = 11;
+        int32 intensify = 12;
+        int32 phase = 13;
+      }
+
+      int32 overall = 1;
+      int32 core_hits = 2;
+      int32 critical_kills = 4;
+      int32 critical_parts_destroyed = 5;
+      .Protobuf.Stats.Combat.ShotsHitRobots.CriticalStrikes critical_strikes = 6;
+    }
+
+    message MeleeAttacks {
+      message SneakAttacks {
+        int32 overall = 1;
+        int32 combat_hostiles = 2;
+      }
+
+      int32 overall = 1;
+      int32 kinetic = 2;
+      int32 thermal = 3;
+      int32 explosive = 4;
+      int32 electromagnetic = 5;
+      int32 impact = 6;
+      int32 slashing = 7;
+      int32 piercing = 8;
+      int32 entropic = 9;
+      int32 phasic = 10;
+      .Protobuf.Stats.Combat.MeleeAttacks.SneakAttacks sneak_attacks = 11;
+      int32 follow_up_attacks = 12;
+      int32 martial_strikes = 13;
+    }
+
+    message DamageInflicted {
+      int32 overall = 1;
+      int32 guns = 2;
+      int32 cannons = 3;
+      int32 explosions = 4;
+      int32 melee = 5;
+      int32 ramming = 6;
+      int32 kinetic = 7;
+      int32 thermal = 8;
+      int32 explosive = 9;
+      int32 electromagnetic = 10;
+      int32 impact = 11;
+      int32 slashing = 12;
+      int32 piercing = 13;
+      int32 entropic = 14;
+      int32 phasic = 15;
+    }
+
+    message HighestCorruption {
+      message Effects {
+        int32 overall = 1;
+        int32 message_errors = 2;
+        int32 matter_fused = 3;
+        int32 heat_flow_errors = 4;
+        int32 energy_discharges = 5;
+        int32 parts_rejected = 6;
+        int32 parts_fused = 14;
+        int32 data_loss_minor_ = 7;
+        int32 data_loss_major_ = 8;
+        int32 misfires = 9;
+        int32 alerts = 10;
+        int32 misdirections = 11;
+        int32 targeting_errors = 12;
+        int32 weapon_failures = 13;
+      }
+
+      int32 overall = 1;
+      int32 average_corruption = 2;
+      int32 corruption_purged = 3;
+      int32 corruption_blocked = 5;
+      .Protobuf.Stats.Combat.HighestCorruption.Effects effects = 4;
+    }
+
+    message OverloadShots {
+      message Effects {
+        int32 overall = 1;
+        int32 energy_bleed = 2;
+        int32 heat_surge = 3;
+        int32 short_circuit = 4;
+        int32 meltdown = 5;
+      }
+
+      int32 overall = 1;
+      .Protobuf.Stats.Combat.OverloadShots.Effects effects = 2;
+    }
+
+    message OverflowDamage {
+      int32 overall = 1;
+      int32 projectiles = 2;
+      int32 explosions = 3;
+      int32 melee = 4;
+    }
+
+    message Knockbacks {
+      int32 overall = 1;
+      int32 impact = 2;
+      int32 kinetic = 3;
+      int32 secondary = 4;
+    }
+
+    message SelfInflictedDamage {
+      int32 overall = 1;
+      int32 shots = 2;
+      int32 rammed = 3;
+    }
+
+    message TargetsRammed {
+      int32 overall = 1;
+      int32 kicked = 2;
+      int32 crushed = 3;
+    }
+
+    message HighestTemperature {
+      message Effects {
+        int32 overall = 1;
+        int32 shutdowns = 2;
+        int32 energy_bleed = 3;
+        int32 interference = 4;
+        int32 matter_decay = 5;
+        int32 short_circuit = 6;
+        int32 damage_minor_ = 7;
+        int32 damage_major_ = 8;
+        int32 damage_core_ = 9;
+      }
+
+      int32 overall = 1;
+      int32 average_temperature = 2;
+      int32 received_heat_transfer = 3;
+      int32 thermoelectric_energy_gain = 5;
+      .Protobuf.Stats.Combat.HighestTemperature.Effects effects = 4;
+    }
+
+    message SiegeActivations {
+      int32 overall = 1;
+      int32 total_turns = 2;
+      int32 longest_duration = 3;
+    }
+
+    message MartialActivations {
+      int32 overall = 1;
+      int32 total_turns = 2;
+      int32 longest_duration = 3;
+    }
+
+    message ShieldingActivations {
+      int32 overall = 1;
+      int32 total_turns = 2;
+      int32 longest_duration = 3;
+    }
+
+    message RobotsDisrupted {
+      int32 overall = 1;
+      int32 combat_hostiles = 2;
+    }
+
+    message RobotsCorrupted {
+      int32 overall = 1;
+      int32 combat_hostiles = 2;
+      int32 parts_fried = 3;
+      int32 impact_corruptions = 4;
+    }
+
+    message RobotsMelted {
+      int32 overall = 1;
+      int32 combat_hostiles = 2;
+      int32 parts_melted = 3;
+      int32 heat_transferred = 4;
+    }
+
+    message LatentEnergyUsed {
+      int32 overall = 1;
+      int32 le_corruption = 2;
+    }
+
+    .Protobuf.Stats.Combat.HostileShotsFired hostile_shots_fired = 24;
+    .Protobuf.Stats.Combat.DamageTaken damage_taken = 1;
+    int32 core_remaining_percent = 2;
+    .Protobuf.Stats.Combat.VolleysFired volleys_fired = 3;
+    .Protobuf.Stats.Combat.ShotsFired shots_fired = 4;
+    .Protobuf.Stats.Combat.ShotsHitRobots shots_hit_robots = 5;
+    .Protobuf.Stats.Combat.MeleeAttacks melee_attacks = 6;
+    .Protobuf.Stats.Combat.DamageInflicted damage_inflicted = 7;
+    .Protobuf.Stats.Combat.HighestCorruption highest_corruption = 8;
+    .Protobuf.Stats.Combat.OverloadShots overload_shots = 9;
+    .Protobuf.Stats.Combat.OverflowDamage overflow_damage = 10;
+    .Protobuf.Stats.Combat.Knockbacks knockbacks = 11;
+    .Protobuf.Stats.Combat.SelfInflictedDamage self_inflicted_damage = 12;
+    .Protobuf.Stats.Combat.TargetsRammed targets_rammed = 13;
+    .Protobuf.Stats.Combat.HighestTemperature highest_temperature = 14;
+    .Protobuf.Stats.Combat.SiegeActivations siege_activations = 15;
+    .Protobuf.Stats.Combat.MartialActivations martial_activations = 26;
+    .Protobuf.Stats.Combat.ShieldingActivations shielding_activations = 27;
+    .Protobuf.Stats.Combat.RobotsDisrupted robots_disrupted = 25;
+    .Protobuf.Stats.Combat.RobotsCorrupted robots_corrupted = 16;
+    .Protobuf.Stats.Combat.RobotsMelted robots_melted = 17;
+    int32 parts_sabotaged = 18;
+    int32 parts_stolen = 19;
+    int32 parts_stripped = 20;
+    int32 power_chain_reactions = 21;
+    int32 missiles_intercepted = 22;
+    .Protobuf.Stats.Combat.LatentEnergyUsed latent_energy_used = 23;
+  }
+
+  message Alert {
+    message MaximumAlertLevel {
+      int32 overall = 1;
+      int32 low_security_percent = 2;
+      int32 level_1 = 3;
+      int32 level_2 = 4;
+      int32 level_3 = 5;
+      int32 level_4 = 6;
+      int32 level_5 = 7;
+      int32 high_security = 8;
+      int32 max_security = 9;
+    }
+
+    message PeakInfluence {
+      int32 overall = 1;
+      int32 initial_influence = 3;
+      int32 average_influence = 2;
+    }
+
+    message InfluenceIncreases {
+      int32 overall = 1;
+      int32 destroy_0b10_robot_c = 2;
+      int32 destroy_0b10_robot_nc = 3;
+      int32 destroy_leader = 4;
+      int32 allied_during_kill = 5;
+      int32 trap_triggered_on_0b10 = 6;
+      int32 successful_hack = 7;
+      int32 select_force_hacks = 8;
+      int32 disable_machine = 9;
+      int32 anti_garrison_action = 10;
+      int32 destroy_structure = 11;
+      int32 advance_influence = 12;
+      int32 partial_spotted = 13;
+      int32 lose_combat_pursuer = 14;
+      int32 active_sensor_use = 15;
+      int32 miscellaneous = 16;
+    }
+
+    message InfluenceDecreases {
+      int32 overall = 1;
+      int32 entered_new_map = 8;
+      int32 time_decay = 2;
+      int32 search_patrol_dispatched = 3;
+      int32 lost_part = 4;
+      int32 lost_ally = 5;
+      int32 purge_threat = 6;
+      int32 miscellaneous = 7;
+    }
+
+    message SquadsDispatched {
+      int32 overall = 1;
+      int32 investigation = 2;
+      int32 extermination = 3;
+      int32 reinforcement = 4;
+      int32 assault = 5;
+      int32 garrison = 6;
+      int32 intercept = 7;
+    }
+
+    .Protobuf.Stats.Alert.MaximumAlertLevel maximum_alert_level = 2;
+    int32 sterilizations = 8;
+    .Protobuf.Stats.Alert.PeakInfluence peak_influence = 1;
+    .Protobuf.Stats.Alert.InfluenceIncreases influence_increases = 12;
+    .Protobuf.Stats.Alert.InfluenceDecreases influence_decreases = 13;
+    .Protobuf.Stats.Alert.SquadsDispatched squads_dispatched = 3;
+    int32 searches_triggered = 11;
+    int32 unchained_authorized = 14;
+    int32 data_miner_redirects = 4;
+    int32 construction_impeded = 5;
+    int32 haulers_reinforced = 6;
+    int32 active_scanning_responses = 10;
+    int32 cargo_convoy_interrupts = 9;
+    int32 alert_id_control_effect = 7;
+  }
+
+  message Stealth {
+    message CommunicationsJammed {
+      int32 overall = 1;
+      int32 distress_signals = 2;
+    }
+
+    message TimesSpotted {
+      int32 overall = 1;
+      int32 peak_tracking_total = 2;
+      int32 tactical_retreats = 3;
+    }
+
+    message IdMasksUsed {
+      int32 overall = 1;
+      int32 iff_responses = 2;
+    }
+
+    int32 distress_signals = 1;
+    .Protobuf.Stats.Stealth.CommunicationsJammed communications_jammed = 2;
+    .Protobuf.Stats.Stealth.TimesSpotted times_spotted = 3;
+    int32 ecm_based_alert_blocks = 5;
+    .Protobuf.Stats.Stealth.IdMasksUsed id_masks_used = 4;
+  }
+
+  message Traps {
+    message TrapsTriggered {
+      int32 overall = 1;
+      int32 indirectly = 2;
+    }
+
+    message TrapHackAttempts {
+      int32 overall = 1;
+      int32 triggered = 2;
+      int32 disarmed = 3;
+      int32 reprogrammed = 4;
+      int32 reused = 5;
+    }
+
+    message TrapsExtracted {
+      int32 overall = 1;
+      int32 installed = 2;
+      int32 triggered = 3;
+    }
+
+    message ObjectsRigged {
+      int32 overall = 1;
+      int32 exploded = 2;
+    }
+
+    message TimeBombsActivated {
+      int32 overall = 1;
+      int32 exploded = 2;
+    }
+
+    .Protobuf.Stats.Traps.TrapsTriggered traps_triggered = 1;
+    .Protobuf.Stats.Traps.TrapHackAttempts trap_hack_attempts = 2;
+    int32 traps_reconfigurated = 3;
+    .Protobuf.Stats.Traps.TrapsExtracted traps_extracted = 4;
+    int32 fabricated_traps = 5;
+    int32 most_traps_carried = 8;
+    .Protobuf.Stats.Traps.ObjectsRigged objects_rigged = 6;
+    .Protobuf.Stats.Traps.TimeBombsActivated time_bombs_activated = 7;
+  }
+
+  message Machines {
+    message MachinesDisabled {
+      int32 overall = 1;
+      int32 max_in_single_turn = 2;
+      int32 garrison_access = 3;
+      int32 garrison_relay = 4;
+      int32 phase_generator = 5;
+      int32 network_hub = 6;
+      int32 energy_cycler = 7;
+    }
+
+    .Protobuf.Stats.Machines.MachinesDisabled machines_disabled = 1;
+    int32 machines_repaired = 6;
+    int32 machines_dismantled = 7;
+    int32 machines_sabotaged = 2;
+    int32 garrisons_compromised = 3;
+    int32 overloaded_fab_kills = 4;
+    int32 fab_network_shutdowns = 5;
+  }
+
+  message Hacking {
+    message MachinesAccessed {
+      int32 overall = 1;
+      int32 terminals = 2;
+      int32 fabricators = 3;
+      int32 repair_stations = 4;
+      int32 recycling_units = 5;
+      int32 scanalyzers = 6;
+      int32 garrison_access = 7;
+    }
+
+    message TotalHacks {
+      message Failed {
+        int32 overall = 1;
+        int32 catastrophic = 2;
+      }
+
+      int32 overall = 1;
+      int32 successful = 2;
+      .Protobuf.Stats.Hacking.TotalHacks.Failed failed = 3;
+      int32 database_lockouts = 4;
+      int32 manual = 5;
+      int32 terminals = 6;
+      int32 fabricators = 7;
+      int32 repair_stations = 8;
+      int32 recycling_units = 9;
+      int32 scanalyzers = 10;
+      int32 garrison_access = 11;
+    }
+
+    message TerminalHacks {
+      int32 overall = 1;
+      int32 record = 2;
+      int32 part_schematic = 3;
+      int32 robot_schematic = 4;
+      int32 robot_analysis = 5;
+      int32 prototype_id_bank = 6;
+      int32 open_door = 7;
+      int32 open_dsf = 52;
+      int32 level_access_points = 8;
+      int32 branch_access_points = 9;
+      int32 emergency_access_points = 10;
+      int32 machine_index = 11;
+      int32 terminal_index = 12;
+      int32 fabricator_index = 13;
+      int32 repair_station_index = 14;
+      int32 recycling_unit_index = 15;
+      int32 scanalyzer_index = 16;
+      int32 garrison_index = 17;
+      int32 alert_level = 18;
+      int32 unreport_threat = 19;
+      int32 locate_traps = 20;
+      int32 disarm_traps = 21;
+      int32 reprogram_traps = 22;
+      int32 dispatch_records = 23;
+      int32 maintenance_status = 24;
+      int32 security_status = 25;
+      int32 surveillance_status = 26;
+      int32 patrol_status = 27;
+      int32 transport_status = 28;
+      int32 investigation_status = 29;
+      int32 extermination_status = 30;
+      int32 reinforcement_status = 31;
+      int32 assault_status = 32;
+      int32 garrison_status = 33;
+      int32 intercept_status = 34;
+      int32 coupling_status = 35;
+      int32 recall_investigation = 36;
+      int32 recall_extermination = 37;
+      int32 recall_reinforcements = 38;
+      int32 recall_assault = 39;
+      int32 hauler_manifests = 40;
+      int32 registered_components = 41;
+      int32 registered_prototypes = 42;
+      int32 zone_layout = 43;
+      int32 download_registry = 54;
+      int32 download_navigation = 55;
+      int32 download_security = 56;
+      int32 proto_id_catalog = 44;
+      int32 protovariant_controls = 45;
+      int32 activate_exoskeleton = 46;
+      int32 disengage_seal = 47;
+      int32 release_object = 53;
+      int32 gate_test_138_a = 48;
+      int32 gate_test_138_b = 49;
+      int32 gate_test_138_c = 50;
+      int32 gate_test_138_end = 51;
+    }
+
+    message FabricatorHacks {
+      int32 overall = 1;
+      int32 network_status = 2;
+      int32 load_schematic = 3;
+      int32 build = 4;
+    }
+
+    message RepairStationHacks {
+      int32 overall = 1;
+      int32 scan_component = 2;
+      int32 repair = 3;
+      int32 refit = 4;
+    }
+
+    message RecyclingUnitHacks {
+      int32 overall = 1;
+      int32 recycle_component = 2;
+      int32 process = 3;
+      int32 report_inventory = 4;
+      int32 retrieve_matter = 5;
+      int32 retrieve_components = 6;
+    }
+
+    message Scanalyzer {
+      int32 overall = 1;
+      int32 insert_component = 2;
+      int32 analyze = 3;
+      int32 retrieve_study = 4;
+    }
+
+    message GarrisonAccessHacks {
+      int32 overall = 1;
+      int32 unlock_access = 2;
+      int32 seal_access = 3;
+      int32 coupler_status = 4;
+    }
+
+    message UnauthorizedHacks {
+      message Terminals {
+        int32 overall = 1;
+        int32 track = 2;
+        int32 assimilate = 3;
+        int32 botnet = 4;
+        int32 detonate = 5;
+        int32 disrupt = 6;
+        int32 operators = 7;
+        int32 skim = 11;
+        int32 sabotage = 8;
+        int32 search = 9;
+        int32 override = 10;
+      }
+
+      message Fabricators {
+        int32 overall = 1;
+        int32 report = 2;
+        int32 prioritize = 3;
+        int32 liberate = 4;
+        int32 fabnet = 8;
+        int32 haulers = 5;
+        int32 overload = 6;
+        int32 download = 7;
+        int32 recompile = 9;
+      }
+
+      message RepairStations {
+        int32 overall = 1;
+        int32 mechanics = 2;
+        int32 patch = 3;
+      }
+
+      message RecyclingUnits {
+        int32 overall = 1;
+        int32 monitor = 2;
+        int32 reject = 3;
+        int32 recyclers = 4;
+        int32 mask = 5;
+        int32 tunnel = 6;
+        int32 fedlink = 7;
+        int32 scrapoids = 8;
+        int32 scraphulk = 9;
+      }
+
+      message Scanalyzers {
+        int32 overall = 1;
+        int32 researchers = 2;
+        int32 extract = 3;
+      }
+
+      message GarrisonAccess {
+        int32 overall = 1;
+        int32 broadcast = 2;
+        int32 restock = 3;
+        int32 decoy = 4;
+        int32 redirect = 5;
+        int32 reprogram = 6;
+        int32 intercept = 7;
+        int32 watchers = 8;
+        int32 jam = 9;
+        int32 eject = 10;
+      }
+
+      int32 overall = 1;
+      .Protobuf.Stats.Hacking.UnauthorizedHacks.Terminals terminals = 2;
+      .Protobuf.Stats.Hacking.UnauthorizedHacks.Fabricators fabricators = 3;
+      .Protobuf.Stats.Hacking.UnauthorizedHacks.RepairStations repair_stations = 4;
+      .Protobuf.Stats.Hacking.UnauthorizedHacks.RecyclingUnits recycling_units = 5;
+      .Protobuf.Stats.Hacking.UnauthorizedHacks.Scanalyzers scanalyzers = 6;
+      .Protobuf.Stats.Hacking.UnauthorizedHacks.GarrisonAccess garrison_access = 7;
+    }
+
+    message DataCoresRecovered {
+      int32 overall = 1;
+      int32 used = 2;
+    }
+
+    message HackingDetections {
+      message FeedbackEvents {
+        int32 overall = 1;
+        int32 corruption = 2;
+        int32 hackware_fried = 3;
+      }
+
+      int32 overall = 1;
+      int32 full_trace_events = 2;
+      .Protobuf.Stats.Hacking.HackingDetections.FeedbackEvents feedback_events = 3;
+      int32 feedback_blocked = 4;
+    }
+
+    message RobotSchematicsAcquired {
+      message RobotsBuilt {
+        int32 overall = 1;
+        int32 authchips = 2;
+        int32 time = 3;
+      }
+
+      int32 overall = 1;
+      .Protobuf.Stats.Hacking.RobotSchematicsAcquired.RobotsBuilt robots_built = 2;
+      int32 total_robot_build_rating = 3;
+    }
+
+    message PartSchematicsAcquired {
+      message PartsBuilt {
+        int32 overall = 1;
+        int32 authchips = 2;
+        int32 time = 3;
+      }
+
+      int32 overall = 1;
+      .Protobuf.Stats.Hacking.PartSchematicsAcquired.PartsBuilt parts_built = 2;
+      int32 total_part_build_rating = 3;
+    }
+
+    message PartsRepaired {
+      int32 overall = 1;
+      int32 time = 2;
+    }
+
+    message PartsRecycled {
+      int32 overall = 1;
+      int32 recycled_matter = 2;
+      int32 retrieved_matter = 3;
+      int32 retrieved_components = 4;
+    }
+
+    message PartsScanalyzed {
+      int32 overall = 1;
+      int32 part_schematics_acquired = 2;
+      int32 parts_damaged = 3;
+    }
+
+    .Protobuf.Stats.Hacking.MachinesAccessed machines_accessed = 1;
+    .Protobuf.Stats.Hacking.TotalHacks total_hacks = 2;
+    .Protobuf.Stats.Hacking.TerminalHacks terminal_hacks = 3;
+    .Protobuf.Stats.Hacking.FabricatorHacks fabricator_hacks = 4;
+    .Protobuf.Stats.Hacking.RepairStationHacks repair_station_hacks = 5;
+    .Protobuf.Stats.Hacking.RecyclingUnitHacks recycling_unit_hacks = 6;
+    .Protobuf.Stats.Hacking.Scanalyzer scanalyzer = 7;
+    .Protobuf.Stats.Hacking.GarrisonAccessHacks garrison_access_hacks = 8;
+    .Protobuf.Stats.Hacking.UnauthorizedHacks unauthorized_hacks = 9;
+    .Protobuf.Stats.Hacking.DataCoresRecovered data_cores_recovered = 10;
+    .Protobuf.Stats.Hacking.HackingDetections hacking_detections = 11;
+    .Protobuf.Stats.Hacking.RobotSchematicsAcquired robot_schematics_acquired = 12;
+    .Protobuf.Stats.Hacking.PartSchematicsAcquired part_schematics_acquired = 13;
+    int32 part_studies_acquired = 17;
+    .Protobuf.Stats.Hacking.PartsRepaired parts_repaired = 14;
+    .Protobuf.Stats.Hacking.PartsRecycled parts_recycled = 15;
+    .Protobuf.Stats.Hacking.PartsScanalyzed parts_scanalyzed = 16;
+  }
+
+  message Bothacking {
+    message UsedRifInstaller {
+      int32 overall = 1;
+      int32 coupler_efficiency = 2;
+      int32 hotswap = 11;
+      int32 code_merge = 17;
+      int32 command_fork = 12;
+      int32 threat_obfuscation = 13;
+      int32 signal_jamming = 14;
+      int32 zone_cloak = 15;
+      int32 robot_detection = 3;
+      int32 watcher_feeds = 16;
+      int32 patrol_navigation = 4;
+      int32 alert_id_control = 5;
+      int32 structural_interface = 6;
+      int32 program_shield = 7;
+      int32 autooverride = 8;
+      int32 autoassimilate = 9;
+      int32 crosswire = 10;
+    }
+
+    message RobotsHacked {
+      int32 overall = 1;
+      int32 non_combat = 2;
+      int32 combat = 3;
+      int32 autooverrided = 4;
+      int32 autoassimilated = 5;
+    }
+
+    message RobotHacksApplied {
+      int32 overall = 1;
+      int32 parse_system = 2;
+      int32 no_distress = 3;
+      int32 generate_anomaly = 4;
+      int32 generate_echo = 5;
+      int32 start_evac = 6;
+      int32 find_chute = 7;
+      int32 deconstruct_machine = 8;
+      int32 hold_bot = 9;
+      int32 start_disposal = 10;
+      int32 ignore_repairs = 11;
+      int32 map_walls = 12;
+      int32 randomize_corridors = 13;
+      int32 map_earth = 14;
+      int32 find_fabricator = 15;
+      int32 find_dsf = 73;
+      int32 drop_inventory = 16;
+      int32 recall_reinforcements = 17;
+      int32 locate_stockpiles = 18;
+      int32 find_recycling = 19;
+      int32 ignore_parts = 20;
+      int32 find_station = 21;
+      int32 release_backups = 22;
+      int32 deconstruct_bot = 23;
+      int32 check_alert = 24;
+      int32 purge_threat = 25;
+      int32 find_terminals = 26;
+      int32 locate_traps = 27;
+      int32 disarm_traps = 28;
+      int32 reprogram_traps = 29;
+      int32 block_reporting = 30;
+      int32 summon_haulers = 31;
+      int32 recall_investigation = 32;
+      int32 clear_repairs = 33;
+      int32 clear_recycling = 34;
+      int32 map_route = 35;
+      int32 mark_security = 36;
+      int32 relay_feed = 37;
+      int32 disable_shields = 38;
+      int32 redirect_shields = 39;
+      int32 find_scanalyzer = 40;
+      int32 disable_scanner = 41;
+      int32 locate_prototypes = 42;
+      int32 report_prototypes = 43;
+      int32 report_schematics = 44;
+      int32 report_analyses = 45;
+      int32 ignore_targets = 46;
+      int32 emergency_deploy = 75;
+      int32 find_shortcuts = 47;
+      int32 find_garrison = 48;
+      int32 show_paths = 49;
+      int32 link_fov = 50;
+      int32 focus_fire = 51;
+      int32 reboot_propulsion = 52;
+      int32 tweak_propulsion = 53;
+      int32 scatter_targeting = 54;
+      int32 mark_system = 55;
+      int32 link_complan = 56;
+      int32 broadcast_data = 57;
+      int32 disrupt_area = 58;
+      int32 spike_heat = 59;
+      int32 overload_power = 60;
+      int32 amplify_resonance = 61;
+      int32 wipe_record = 62;
+      int32 disable_weapons = 63;
+      int32 reboot_system = 64;
+      int32 go_dormant = 65;
+      int32 overwrite_iff = 66;
+      int32 streamctrl_low = 67;
+      int32 streamctrl_high = 68;
+      int32 formatsys_low = 69;
+      int32 formatsys_high = 70;
+      int32 formatsys_deep = 74;
+      int32 retrieve_part = 71;
+      int32 manual = 72;
+    }
+
+    message RelayCouplersReleased {
+      int32 overall = 1;
+      int32 ejected = 2;
+      int32 machine_destruction = 3;
+      int32 programmers = 4;
+      int32 attached = 5;
+      int32 crosswired = 6;
+      int32 merged_code_value = 7;
+    }
+
+    message FabnetPeakEffectivePercent {
+      int32 overall = 1;
+      int32 autooverrided = 2;
+    }
+
+    .Protobuf.Stats.Bothacking.UsedRifInstaller used_rif_installer = 1;
+    .Protobuf.Stats.Bothacking.RobotsHacked robots_hacked = 2;
+    .Protobuf.Stats.Bothacking.RobotHacksApplied robot_hacks_applied = 3;
+    .Protobuf.Stats.Bothacking.RelayCouplersReleased relay_couplers_released = 4;
+    .Protobuf.Stats.Bothacking.FabnetPeakEffectivePercent fabnet_peak_effective_percent = 8;
+    int32 robots_rewired = 5;
+    int32 allies_hacked = 6;
+    int32 hacks_repelled = 7;
+  }
+
+  message Allies {
+    message TotalAllies {
+      int32 overall = 1;
+      int32 largest_group = 2;
+      int32 highest_rated_group = 3;
+      int32 highest_rated_ally = 4;
+    }
+
+    message ZioniteDispatches {
+      int32 overall = 1;
+      int32 heavy = 2;
+      int32 light = 3;
+      int32 recon = 4;
+      int32 fire = 5;
+      int32 hacker = 6;
+      int32 demo = 7;
+      int32 experimental = 8;
+      int32 hero = 9;
+      int32 thermal_resupply = 10;
+      int32 kinetic_resupply = 11;
+      int32 explosive_resupply = 12;
+      int32 melee_resupply = 13;
+      int32 trap_resupply = 14;
+      int32 resource_resupply = 15;
+      int32 offense_resupply = 16;
+      int32 defense_resupply = 17;
+      int32 heavy_resupply = 18;
+      int32 infowar_resupply = 19;
+      int32 hacking_resupply = 20;
+      int32 hover_resupply = 21;
+      int32 zionite_resupply = 22;
+    }
+
+    message WarlordSquadRendezvous {
+      int32 overall = 1;
+      int32 dakka = 2;
+      int32 infantry = 3;
+      int32 muscle = 4;
+      int32 geek = 5;
+      int32 ranger = 6;
+      int32 pyro = 7;
+      int32 chimera = 8;
+      int32 ghost = 9;
+    }
+
+    message TotalOrders {
+      int32 overall = 1;
+      int32 stay = 2;
+      int32 goto = 3;
+      int32 roam = 4;
+      int32 follow = 5;
+      int32 guard = 6;
+      int32 aid = 7;
+      int32 tunnel = 8;
+      int32 drop = 9;
+      int32 pickup = 10;
+      int32 collect = 11;
+      int32 explore = 12;
+      int32 return = 13;
+    }
+
+    message AllyAttacks {
+      int32 overall = 1;
+      int32 total_damage = 2;
+      int32 kills = 3;
+    }
+
+    message BorgCreated {
+      int32 overall = 1;
+      int32 largest_collective = 2;
+    }
+
+    message XomAmusementGains {
+      int32 overall = 1;
+      int32 average_entertainment = 4;
+      int32 good_acts = 2;
+      int32 bad_acts = 3;
+    }
+
+    .Protobuf.Stats.Allies.TotalAllies total_allies = 1;
+    .Protobuf.Stats.Allies.ZioniteDispatches zionite_dispatches = 2;
+    int32 ufd_resources = 12;
+    int32 warlord_eca_mod = 11;
+    .Protobuf.Stats.Allies.WarlordSquadRendezvous warlord_squad_rendezvous = 10;
+    .Protobuf.Stats.Allies.TotalOrders total_orders = 3;
+    .Protobuf.Stats.Allies.AllyAttacks ally_attacks = 4;
+    int32 allies_corrupted = 5;
+    int32 allies_melted = 6;
+    int32 turrets_deployed = 7;
+    int32 fabricated_assembled = 8;
+    int32 field_lobotomies = 9;
+    .Protobuf.Stats.Allies.BorgCreated borg_created = 13;
+    .Protobuf.Stats.Allies.XomAmusementGains xom_amusement_gains = 14;
+  }
+
+  message Intel {
+    message ActiveInfowar {
+      int32 overall = 1;
+      int32 optics = 2;
+      int32 sensors = 3;
+      int32 ass = 4;
+      int32 iff = 18;
+      int32 zeronet = 19;
+      int32 terrain = 5;
+      int32 structural = 6;
+      int32 traps = 7;
+      int32 seismic = 8;
+      int32 decoding = 9;
+      int32 tnc = 10;
+      int32 machine_analysis = 11;
+      int32 triangulation = 12;
+      int32 cloaking = 13;
+      int32 spoofing = 14;
+      int32 jamming = 15;
+      int32 ecm = 16;
+      int32 id_mask = 17;
+    }
+
+    message DroneLaunches {
+      int32 overall = 1;
+      int32 drone_recoveries = 2;
+    }
+
+    message Decoded0b10Intel {
+      int32 overall = 1;
+      int32 traps = 2;
+      int32 emergency_access = 3;
+      int32 items = 4;
+      int32 machines = 5;
+      int32 garrisons = 6;
+      int32 patrols = 7;
+      int32 investigations = 8;
+      int32 reinforcements = 9;
+      int32 guards = 10;
+      int32 exits = 11;
+    }
+
+    message ZioniteIntelReceived {
+      int32 overall = 1;
+      int32 main_access = 2;
+      int32 branch_access = 3;
+      int32 emergency_access = 4;
+      int32 guard_positions = 5;
+      int32 component_stockpiles = 6;
+      int32 prototype_stockpiles = 7;
+      int32 component_schematics = 8;
+      int32 prototype_schematics = 9;
+      int32 unaware_schematics = 10;
+      int32 unaware_analyses = 11;
+      int32 trap_installations = 12;
+      int32 active_terminals = 13;
+      int32 active_garrisons = 14;
+      int32 depthwide_sectors_0 = 15;
+      int32 depthwide_sectors_1 = 16;
+    }
+
+    .Protobuf.Stats.Intel.ActiveInfowar active_infowar = 6;
+    int32 robot_analysis_total = 1;
+    int32 derelict_logs_recovered = 2;
+    .Protobuf.Stats.Intel.DroneLaunches drone_launches = 3;
+    .Protobuf.Stats.Intel.Decoded0b10Intel decoded_0b10_intel = 4;
+    .Protobuf.Stats.Intel.ZioniteIntelReceived zionite_intel_received = 5;
+  }
+
+  message Exploration {
+    message SpacesMoved {
+      int32 overall = 1;
+      int32 core = 2;
+      int32 treads = 3;
+      int32 legs = 4;
+      int32 wheels = 5;
+      int32 hover = 6;
+      int32 flight = 7;
+      int32 fastest_speed = 8;
+      int32 average_speed = 9;
+      int32 slowest_speed = 10;
+      int32 overloaded_moves = 11;
+      int32 propulsion_burnouts = 12;
+      int32 robots_hopped = 13;
+      int32 potential_cave_ins = 19;
+      int32 cave_ins_triggered = 14;
+      int32 teleports = 15;
+      int32 spacefolds = 17;
+      int32 microwarps = 18;
+      int32 time_travels = 16;
+    }
+
+    message ExplorationRatePercent {
+      message RegionsVisited {
+        int32 overall = 1;
+        int32 branch_regions = 2;
+      }
+
+      int32 overall = 1;
+      .Protobuf.Stats.Exploration.ExplorationRatePercent.RegionsVisited regions_visited = 2;
+      int32 pre_discovered_areas = 3;
+      int32 known_exits_taken = 4;
+      int32 unknown_exits_taken = 5;
+    }
+
+    message TerrainDestroyed {
+      int32 overall = 1;
+      int32 melee = 2;
+      int32 projectile = 3;
+      int32 aoe = 4;
+    }
+
+    message TerrainRammed {
+      int32 overall = 1;
+      int32 walls_destroyed = 2;
+      int32 machines_disabled = 3;
+    }
+
+    int32 turns_passed = 1;
+    .Protobuf.Stats.Exploration.SpacesMoved spaces_moved = 2;
+    .Protobuf.Stats.Exploration.ExplorationRatePercent exploration_rate_percent = 3;
+    int32 scrap_searched = 4;
+    int32 spaces_dug = 5;
+    .Protobuf.Stats.Exploration.TerrainDestroyed terrain_destroyed = 6;
+    .Protobuf.Stats.Exploration.TerrainRammed terrain_rammed = 7;
+    int32 doors_sealed = 8;
+  }
+
+  message Actions {
+    message Total {
+      int32 overall = 1;
+      int32 wait = 2;
+      int32 move = 3;
+      int32 hop = 4;
+      int32 pick_up = 5;
+      int32 fast_attach = 6;
+      int32 attach = 7;
+      int32 detach = 8;
+      int32 swap = 9;
+      int32 drop = 10;
+      int32 fire = 11;
+      int32 melee = 12;
+      int32 ram = 13;
+      int32 kick = 14;
+      int32 crush = 15;
+      int32 escape_stasis = 16;
+      int32 rewire = 17;
+      int32 trap = 18;
+      int32 miscellaneous = 19;
+    }
+
+    .Protobuf.Stats.Actions.Total total = 1;
+  }
+
+  message Rpglike {
+    message LevelsRaised {
+      int32 overall = 1;
+      int32 xp_earned = 2;
+      int32 xp_spent = 3;
+    }
+
+    message Upgrades {
+      int32 overall = 1;
+      int32 power_slot = 2;
+      int32 propulsion_slot = 3;
+      int32 utility_slot = 4;
+      int32 weapon_slot = 5;
+      int32 core_integrity = 6;
+      int32 heat_dissipation = 7;
+      int32 energy_generation = 8;
+      int32 energy_storage = 9;
+      int32 matter_storage = 10;
+      int32 mass_support = 11;
+      int32 inventory_capacity = 12;
+      int32 sight_range = 13;
+      int32 sensor_range = 14;
+      int32 terrain_scan_density = 15;
+      int32 ranged_accuracy = 16;
+      int32 melee_accuracy = 17;
+      int32 hack_attack_percent = 18;
+      int32 hack_defense_percent = 19;
+      int32 ki_resistance_percent = 20;
+      int32 th_resistance_percent = 21;
+      int32 ex_resistance_percent = 22;
+      int32 ki_damage_percent = 23;
+      int32 th_damage_percent = 24;
+      int32 ex_damage_percent = 25;
+    }
+
+    message ProtomatterCreated {
+      message IntegrityRestored {
+        int32 overall = 1;
+        int32 core = 2;
+        int32 parts = 3;
+      }
+
+      int32 overall = 1;
+      .Protobuf.Stats.Rpglike.ProtomatterCreated.IntegrityRestored integrity_restored = 2;
+    }
+
+    .Protobuf.Stats.Rpglike.LevelsRaised levels_raised = 1;
+    .Protobuf.Stats.Rpglike.Upgrades upgrades = 2;
+    .Protobuf.Stats.Rpglike.ProtomatterCreated protomatter_created = 3;
+    int32 protomatter_decayed = 4;
+  }
+
+  message Player2 {
+    message SlotsEvolved {
+      int32 overall = 1;
+      int32 power = 2;
+      int32 propulsion = 3;
+      int32 utility = 4;
+      int32 weapon = 5;
+    }
+
+    message DamageTaken {
+      message CoreDamage {
+        int32 overall = 1;
+        int32 player2Percentage = 2;
+      }
+
+      int32 overall = 1;
+      .Protobuf.Stats.Player2.DamageTaken.CoreDamage core = 2;
+      int32 absorbed_by_shields = 3;
+    }
+
+    message DamageInflicted {
+      int32 overall = 1;
+      int32 player2Percentage = 2;
+    }
+
+    message CombatHostilesDestroyed {
+      int32 overall = 1;
+      int32 player2Percentage = 2;
+    }
+
+    .Protobuf.Stats.Player2.SlotsEvolved slots_evolved = 1;
+    int32 parts_attached = 2;
+    int32 parts_lost = 3;
+    .Protobuf.Stats.Player2.DamageTaken damage_taken = 4;
+    .Protobuf.Stats.Player2.DamageInflicted damage_inflicted = 5;
+    .Protobuf.Stats.Player2.CombatHostilesDestroyed combat_hostiles_destroyed = 6;
+  }
+
+  message Polymind {
+    message Hosts {
+      int32 overall = 1;
+      int32 combat_hostiles = 2;
+      int32 allies = 3;
+    }
+
+    message AverageSuspicion {
+      int32 overall = 1;
+      int32 unsuspicious_activity = 2;
+      int32 returns_to_shadow = 3;
+      int32 fuzzy_dispatches = 4;
+    }
+
+    message ProtomatterCreated {
+      int32 overall = 1;
+      int32 used = 2;
+      int32 decayed = 3;
+      int32 highest_spend = 4;
+    }
+
+    .Protobuf.Stats.Polymind.Hosts hosts = 1;
+    int32 unique_host_classes = 2;
+    .Protobuf.Stats.Polymind.AverageSuspicion average_suspicion = 3;
+    .Protobuf.Stats.Polymind.ProtomatterCreated protomatter_created = 4;
+  }
+
+  .Protobuf.Stats.Build build = 1;
+  .Protobuf.Stats.Resources resources = 2;
+  .Protobuf.Stats.Kills kills = 3;
+  .Protobuf.Stats.Combat combat = 4;
+  .Protobuf.Stats.Alert alert = 5;
+  .Protobuf.Stats.Stealth stealth = 6;
+  .Protobuf.Stats.Traps traps = 7;
+  .Protobuf.Stats.Machines machines = 8;
+  .Protobuf.Stats.Hacking hacking = 9;
+  .Protobuf.Stats.Bothacking bothacking = 10;
+  .Protobuf.Stats.Allies allies = 11;
+  .Protobuf.Stats.Intel intel = 12;
+  .Protobuf.Stats.Exploration exploration = 13;
+  .Protobuf.Stats.Actions actions = 14;
+  .Protobuf.Stats.Rpglike rpglike = 15;
+  .Protobuf.Stats.Player2 player2 = 16;
+  .Protobuf.Stats.Polymind polymind = 17;
+}
+
