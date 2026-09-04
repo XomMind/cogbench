@@ -250,17 +250,41 @@ ACTIONS_HELP = """actions:
 N must be one of 1 2 4 8 12."""
 
 
-class Llama:
-    """llama.cpp server client.
+class Chat:
+    """OpenAI-compatible client, for oMLX.
 
-    Uses `/completion` with the chat template applied by hand rather than
-    `/v1/chat/completions`: the native endpoint's `grammar` support is the
-    documented one, and the OpenAI-compatible path has historically differed
-    between builds on whether it forwards the field.
+    llama.cpp gave us GBNF, which made a malformed action impossible: 90/90
+    valid generations across a run. oMLX has JSON-schema structured output
+    instead, so the action becomes an object -- `{"verb":"descend","n":12}` --
+    rather than a grammar over `descend 12`. Slightly more tokens, same
+    guarantee, and it fails soft: if the server ignores `response_format` the
+    reply is still validated and retried.
+
+    Thinking is disabled per request. Qwen templates default to reasoning, and
+    for a choice among eleven verbs a chain of thought is pure latency -- at one
+    call per decision and thousands of decisions per run, it is the difference
+    between watchable and not. The flag has to travel in `chat_template_kwargs`:
+    the top-level OpenAI `reasoning_effort` field is dropped by both oMLX and
+    llama.cpp.
     """
 
-    def __init__(self, url, temperature=0.7, timeout=180):
+    SCHEMA = {
+        "type": "object",
+        "properties": {
+            "verb": {"type": "string",
+                     "enum": ["descend", "explore", "flee", "move",
+                              "fire", "pickup", "wait"]},
+            "dir": {"type": "string",
+                    "enum": ["n", "ne", "e", "se", "s", "sw", "w", "nw"]},
+            "n": {"type": "integer", "enum": [1, 2, 4, 8, 12]},
+        },
+        "required": ["verb"],
+        "additionalProperties": False,
+    }
+
+    def __init__(self, url, model=None, temperature=0.7, timeout=180):
         self.url = url.rstrip("/")
+        self.model = model
         self.temperature = temperature
         self.timeout = timeout
         self.calls = 0
@@ -269,37 +293,70 @@ class Llama:
 
     def _post(self, path, payload):
         req = urllib.request.Request(
-            self.url + path,
-            data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"},
-        )
+            self.url + path, data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=self.timeout) as r:
             return json.load(r)
 
     def health(self):
         try:
-            with urllib.request.urlopen(self.url + "/health", timeout=10) as r:
-                return json.load(r)
+            with urllib.request.urlopen(self.url + "/v1/models", timeout=10) as r:
+                ids = [m["id"] for m in json.load(r).get("data", [])]
         except Exception as e:
-            raise SystemExit(
-                "no llama-server at %s (%s)\n"
-                "start one with:\n"
-                "  llama-server -m models/gemma-4-E4B_q4_0-it.gguf "
-                "-c 8192 -ngl 999 --port 8080" % (self.url, e))
+            raise SystemExit("no OpenAI-compatible server at %s (%s)" % (self.url, e))
+        if not ids:
+            raise SystemExit("%s is serving no models" % self.url)
+        if self.model is None:
+            self.model = ids[0]
+        elif self.model not in ids:
+            raise SystemExit("model %r not served. available:\n  %s"
+                             % (self.model, "\n  ".join(ids)))
+        return self.model
 
-    def act(self, prompt):
-        t0 = time.time()
-        out = self._post("/completion", {
-            "prompt": prompt,
-            "grammar": GRAMMAR,
-            "n_predict": 12,
+    def act(self, obs_text):
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "user",
+                          "content": SYSTEM + "\n\n" + ACTIONS_HELP + "\n\n"
+                                     + obs_text + "\n\nYour action:"}],
             "temperature": self.temperature,
-            "cache_prompt": True,
-        })
+            "max_tokens": 64,
+            "chat_template_kwargs": {"enable_thinking": False},
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {"name": "action", "strict": True,
+                                "schema": self.SCHEMA},
+            },
+        }
+        t0 = time.time()
+        try:
+            out = self._post("/v1/chat/completions", payload)
+        except urllib.error.HTTPError:
+            # Server rejected the structured-output request; fall back to plain
+            # text and let parse_action + retry do the validating.
+            payload.pop("response_format", None)
+            out = self._post("/v1/chat/completions", payload)
         self.calls += 1
         self.total_ms += int((time.time() - t0) * 1000)
-        self.prompt_tokens += out.get("tokens_evaluated", 0)
-        return out.get("content", "").strip()
+        self.prompt_tokens += (out.get("usage") or {}).get("prompt_tokens", 0)
+        return self._to_action(
+            (out["choices"][0]["message"].get("content") or "").strip())
+
+    @staticmethod
+    def _to_action(text):
+        """Accept either the JSON object or a bare action line."""
+        try:
+            j = json.loads(text[text.index("{"):text.rindex("}") + 1])
+            verb = j.get("verb", "")
+            if verb in ("pickup",):
+                return verb
+            if verb == "fire":
+                return "fire %s" % j.get("dir", "n")
+            if verb == "move":
+                return "move %s %s" % (j.get("dir", "n"), j.get("n", 4))
+            return "%s %s" % (verb, j.get("n", 8))
+        except (ValueError, KeyError):
+            return text.splitlines()[0].strip() if text else ""
 
 
 def gemma_prompt(system, user):
@@ -384,6 +441,82 @@ SCRIPTS = [
 ]
 
 
+
+# --------------------------------------------------------------------- watch
+
+# A live terminal view, for watching a policy play rather than reading its log
+# afterwards. Redraws in place each decision: the known map, resource bars, the
+# loadout, and -- the part worth seeing -- which script fired and on what
+# evidence. Watching a policy choose is how three separate livelocks became
+# obvious; a scrolling log hid all of them.
+
+ANSI_HOME = "\033[H\033[J"
+
+
+def bar(cur, mx, width=14):
+    if not mx:
+        return " " * width
+    n = max(0, min(width, round(width * cur / mx)))
+    return "\u2588" * n + "\u00b7" * (width - n)
+
+
+def render_watch(agent, dump, sit, action, result, i):
+    o = statdump.observation(dump)
+    v = agent.view
+    r = o["resources"]
+    L = [ANSI_HOME]
+    L.append("\033[1mcogbench\033[0m  %s   decision %-4d turn %-5s %s d%s"
+             % (agent.policy, i, o["turns"]["passed"],
+                o["location"]["map"], o["location"]["depth"]))
+    L.append("")
+    for label, key in (("core", "core_integrity"), ("matter", "matter"),
+                       ("energy", "energy")):
+        vv = r[key]
+        L.append("  %-7s %s %4d/%-4d" % (label, bar(vv["current"], vv["maximum"]),
+                                         vv["current"], vv["maximum"]))
+    L.append("")
+    px, py = v.player
+    for y in range(py - 7, py + 8):
+        row = []
+        for x in range(px - 16, px + 17):
+            if (x, y) == (px, py):
+                row.append("\033[1;97m@\033[0m"); continue
+            if (x, y) in v.entities:
+                row.append("\033[1;91m%s\033[0m" % v.entities[(x, y)]); continue
+            ch = v.world.get((x, y), "?")
+            if ch in GLYPH_EXITS:
+                row.append("\033[1;96m%s\033[0m" % ch)
+            elif ch == GLYPH_WALL:
+                row.append("\033[90m#\033[0m")
+            elif ch == "?":
+                row.append("\033[90m\u00b7\033[0m")
+            elif ch == " ":
+                row.append(" ")
+            else:
+                row.append("\033[93m%s\033[0m" % ch)
+        L.append("   " + "".join(row))
+    L.append("")
+    for sect in ("power", "propulsion", "utility", "weapon"):
+        pp = o["parts"][sect]
+        L.append("  %-11s %d/%d  %s" % (sect, len(pp["attached"]), pp["slots"],
+                                        ", ".join(pp["attached"]) or "-"))
+    inv = o["parts"]["inventory"]["attached"]
+    L.append("  %-11s %-5d %s" % ("inventory", len(inv), ", ".join(inv[:4]) or "-"))
+    L.append("")
+    L.append("  hostiles %-3s nearest %-6s under-attack %-6s armed %s"
+             % (sit.get("hostiles"), sit.get("near"),
+                sit.get("under_attack"), sit.get("armed")))
+    if sit.get("dossier"):
+        L.append("  identified  %s" % ", ".join(sit["dossier"]))
+    L.append("")
+    L.append("  \033[1m%-18s %-13s\033[0m %s"
+             % (agent.last_script or "-", action, result))
+    L.append("")
+    for line in o["messages"][-4:]:
+        L.append("  \033[90m%s\033[0m" % line[:96])
+    print("\n".join(L), flush=True)
+
+
 # -------------------------------------------------------------------- theagent
 
 class Agent(Bot):
@@ -401,6 +534,8 @@ class Agent(Bot):
         self.action_counts = collections.Counter()
         self.script_counts = collections.Counter()
         self.last_script = None
+        self.last_sit = {}
+        self.watch = False
         self.dex = Botdex()
         self.prev_damage_taken = 0
         self.prev_volleys = 0
@@ -539,14 +674,10 @@ class Agent(Bot):
             return self.scripted(dump)
         if self.policy == "heuristic":
             return self.heuristic()
-        # Stable text first, observation last: llama.cpp caches the longest
-        # common prefix between calls, and prefill is the whole cost here (~700
-        # observation tokens at ~120 tok/s). Putting the action list before the
-        # observation makes it cached instead of re-evaluated every decision.
-        prompt = gemma_prompt(SYSTEM + "\n\n" + ACTIONS_HELP,
-                              obs_text + "\n\nYour action:")
+        # Stable text first, observation last, so a server that caches the
+        # longest common prefix re-evaluates only what changed.
         for _ in range(3):
-            a = self.llama.act(prompt)
+            a = self.llama.act(obs_text)
             if parse_action(a):
                 return a
             self.invalid += 1
@@ -664,6 +795,7 @@ class Agent(Bot):
         self.prev_sig = sig
 
         sit = self.situation(dump)
+        self.last_sit = sit
         for name, guard, action in SCRIPTS:
             if self.suppressed.get(name, -1) > self.decisions:
                 continue
@@ -861,8 +993,14 @@ class Agent(Bot):
             action = self.choose(obs, dump)
             self.decisions += 1
             result = self.do(action)
-            self.say("[%3d] d%-4s %-16s %-12s -> %s"
-                     % (i, depth, self.last_script or "-", action, result))
+            if self.watch:
+                try:
+                    render_watch(self, dump, self.last_sit or {}, action, result, i)
+                except Exception as e:
+                    print("[watch] %s" % e, flush=True)
+            else:
+                self.say("[%3d] d%-4s %-16s %-12s -> %s"
+                         % (i, depth, self.last_script or "-", action, result))
 
             end = watcher.poll()
             if end:
@@ -907,7 +1045,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--statmind", default=os.environ.get(
         "STATMIND", "/Users/heni/genAI/cogbench/StatMind/target/release/statmind"))
-    ap.add_argument("--url", default="http://127.0.0.1:8080")
+    ap.add_argument("--url", default="http://127.0.0.1:8000",
+                    help="OpenAI-compatible endpoint (oMLX default :8000)")
+    ap.add_argument("--model", help="model id; default: first one served")
     ap.add_argument("--policy", choices=["model", "heuristic", "scripts"],
                     default="model")
     ap.add_argument("--temperature", type=float, default=0.7)
@@ -916,15 +1056,19 @@ def main():
                     help="terrain from the cell table (ground truth) instead of "
                          "the known map -- comparable to bot.py, not a fair run")
     ap.add_argument("--out", help="write the result JSON here")
+    ap.add_argument("--watch", action="store_true",
+                    help="live in-place terminal view instead of a scrolling log")
     a = ap.parse_args()
 
     llama = None
     if a.policy == "model":
-        llama = Llama(a.url, temperature=a.temperature)
-        llama.health()
+        llama = Chat(a.url, model=a.model, temperature=a.temperature)
+        print("model: %s" % llama.health())
 
     sm = Statmind(a.statmind, quiet=True)
-    agent = Agent(sm, llama=llama, policy=a.policy, cheat=a.cheat)
+    agent = Agent(sm, llama=llama, policy=a.policy, cheat=a.cheat,
+                  verbose=not a.watch)
+    agent.watch = a.watch
     res = agent.play(max_decisions=a.decisions)
     print(json.dumps(res, indent=1))
     if a.out:
