@@ -1,9 +1,10 @@
-# Two Beta 17.1 executables, and what it takes to support both
+# Three Beta 17.1 executables, and what it takes to support them all
 
-Cogmind shipped a second Beta 17.1 build. It carries the same version string and
-the same `.data` layout as the one this harness was written against, but its
-code has moved — by nine different amounts. This note records what was compared,
-what the conclusions rest on, and what is still owed a live check.
+Three Cogmind executables now carry the version string "Beta 17.1" and none of
+their addresses are interchangeable. The second moved only code. The third, from
+Steam, moved `.data` as well — which broke the assumption the first two had made
+look safe, that data addresses carry across builds. This note records what was
+compared, what the conclusions rest on, and what is still owed a live check.
 
 The build table these findings feed is
 [`statmind_build.h`](../../StatMind/SDL-1.2/src/statmind_build.h), and
@@ -12,16 +13,18 @@ against an executable without launching anything.
 
 ## The two builds
 
-| | first 17.1 | second 17.1 |
-|---|---|---|
-| Size | 9,347,072 | 9,347,584 |
-| SHA-256 | `4bcccd56d7e1116e2ac1d216eb542f83b6ceb8e7c5a1c27574b9187fccf8cd83` | `6c96192b9b7a81956416abdb11766933bca21fce8c2c0d57b97b172e13cd8184` |
-| PE timestamp | `0x6A8CFC58`, 2026-08-25 02:22:16 UTC | `0x6A9CBFDF`, 2026-09-06 01:20:31 UTC |
-| Archive | — | `COGMIND_Beta_17.1.zip`, `411715e2d8613dd267188418c7a379d947fbf700fe207c4bbdc81e9a367c6924` |
+| | first 17.1 | second 17.1 | Steam |
+|---|---|---|---|
+| Size | 9,347,072 | 9,347,584 | 9,357,312 |
+| SHA-256 | `4bcccd56…cd83` | `6c96192b…8184` | `6d24c525…1666` |
+| PE timestamp | `0x6A8CFC58`, 2026-08-25 02:22:16 | `0x6A9CBFDF`, 2026-09-06 01:20:31 | `0x6A9CC02C`, 2026-09-06 01:21:48 |
+| Image size | `0x940000` | `0x940000` | `0x941000` |
+| Source | — | `COGMIND_Beta_17.1.zip` | Steam install |
 
-The second is kept unmodified under
-`releases/beta-17.1-6c96192b9b7a/`, alongside the `manifest.json` recording
-where it came from. Nothing in `releases/` is ever patched in place.
+The Steam build is the same patch (260906) as the second, compiled 77 seconds
+later against `steam_api`. Both are kept unmodified under `releases/`, each with
+a `manifest.json` recording where it came from. Nothing in `releases/` is ever
+patched in place.
 
 Both are PE32 i386, `ImageBase 0x00400000`, `DllCharacteristics = 0x8100` — no
 `DYNAMIC_BASE` and no `.reloc` section — so each still loads at a fixed base and
@@ -51,7 +54,7 @@ the middle of unrelated functions, and the shim's whole reason for existing is
 that it writes to the game's memory and calls into it directly. So the table is
 per-build, keyed by PE timestamp, with every entry fingerprinted.
 
-## What did not move
+## What did not move — between the first two
 
 `.data` starts at RVA `0x008A8000` with virtual size `0x000943FC` in both. The
 initialised bytes are identical except for five dwords, and all five are
@@ -65,10 +68,54 @@ pointers into `.text` or `.rdata` that the linker fixed up to the new code:
 | `0x00CEA788` | `0x00C02240` | `0x00C022D8` | `.rdata` |
 | `0x00CEA78C` | `0x00C02428` | `0x00C024B8` | `.rdata` |
 
-That is the load-bearing result: an identical `.data` start, an identical
-virtual size, and an identical initialised image mean the linker placed every
-static global — zero-fill tail included — exactly where it had been. Every fixed
-data address the harness uses survives unchanged.
+That is the load-bearing result for these two: an identical `.data` start, an
+identical virtual size, and an identical initialised image mean the linker
+placed every static global — zero-fill tail included — exactly where it had
+been. Every fixed data address the harness uses survives between them.
+
+**This is the thing not to generalise.** It made data addresses look like a
+property of "Beta 17.1" rather than of a particular executable, and the Steam
+build is the counterexample.
+
+## What the Steam build moved
+
+`steam_api` pushes `.text` 0x1C50 bytes further, past a page boundary, so the
+image is a page larger and everything after `.text` slides up:
+
+| | second 17.1 | Steam |
+|---|---|---|
+| Image size | `0x940000` | `0x941000` |
+| `.rdata` RVA | `0x761000` | `0x762000` |
+| `.data` RVA / vsize | `0x8A8000` / `0x943FC` | `0x8A9000` / `0x944D4` |
+
+`.data` grew by 0xD8 as well as moving, so the globals inside it do not even
+shift uniformly:
+
+| | second 17.1 | Steam | Δ |
+|---|---|---|---|
+| `luigiAiActive` | `0x00CEFB3E` | `0x00CF0C0B` | +0x10CD |
+| `LuigiAi` | `0x00CEBFFC` | `0x00CED0CC` | +0x10D0 |
+| view origin | `0x00CD8FA4` | `0x00CDA074` | +0x10D0 |
+| map object | `0x00CFD44C` | `0x00CFE528` | +0x10DC |
+| `Scorekeeper` | `0x00D2C658` | `0x00D2D738` | +0x10E0 |
+
+Five addresses, four different deltas. So data addresses live in the build table
+per build, exactly like the code anchors, and the resolver checks each one
+against the instruction that encodes it. The image-size check moved into the
+table too, since `0x940000` is no longer universal.
+
+### The reader had to learn about builds
+
+StatMind reads these addresses from *outside* the process and had them as `const`s
+in `cells.rs` and `blit.rs`, with no notion of which executable was running. That
+was only ever safe because the shim refused unknown builds and the two known ones
+agreed.
+
+The shim now publishes what it resolved — build stamp, LuigiAi, map object,
+player record, view origin — in `StatmindLuigiStatus`, and `common::get_addrs`
+reads it. `statmind_build.h` stays the single description of a build, and the
+reader has no addresses of its own. Field *offsets* stay where they were; only
+the bases became dynamic.
 
 The scoresheet descriptor survives too. The serialised `FileDescriptorProto`
 protobuf leaves in `.rdata` moved with the section, from file offset `0x81A080`
@@ -161,6 +208,22 @@ that really happened still reports `no turn advanced (actionReady still 0)`.
 That message is a dead field talking, not a failed input. Confirm a move by
 re-reading the player record, never by that string.
 
+## Finding these on the next build
+
+[`find_build.py`](../find_build.py) does the whole search: the nine anchors from
+their fingerprints, the four data addresses from the instructions that encode
+them, and — given `--reference` — the two that nothing encodes. It prints a
+table row ready to paste.
+
+It is validated by reproducing rows already shipped:
+
+```sh
+python3 find_build.py --self-test "path/to/COGMIND.exe"
+```
+
+Both Beta 17.1 rows reproduce exactly, and running it against the Steam build
+with the second as reference produces the row now in the table.
+
 ## What static analysis cannot settle
 
 Two of StatMind's four fixed data addresses have no code to point at.
@@ -175,6 +238,15 @@ first place. Its neighbourhood is unchanged — the nearest referenced globals o
 either side are `0x00D2D2A0` (63 references) and `0x00D2D348` (2), identically in
 both builds — and the `.data` argument above covers it. But it is inferred from
 layout, not pinned, so it needed a live check.
+
+On the Steam build it is **not yet known**, and its table entry is `0`. The
+reader refuses player queries rather than falling back to another build's value,
+because a wrong address here does not error — it returns plausible-looking
+coordinates. `find_build.py` derives a candidate of **`0x00D2E410`** by matching
+the neighbouring global (itself identified by the bodies of the methods called on
+it, which are byte-identical across builds) and taking the same +0x98 offset.
+That candidate has not been read on a running game and must not go in the table
+until it has.
 
 **Confirmed on the second build, 2026-09-17**, against a running game on the
 worker (seed `8STBK809`, `MAP_MAT` at depth −10, the game reporting its own
@@ -199,14 +271,12 @@ append, which is what stops `episode.py` reading a dump as a finished run.
 
 ## Adding the next build
 
-1. Keep the archive: `releases/<version>-<sha256 prefix>/`, with a `manifest.json`
-   recording the archive hash, the executable hash and its size.
-2. Diff the sections and `.data` against a known build. An unchanged `.data` RVA
-   and virtual size is what licenses reusing the fixed data addresses; if either
-   moves, every one of them needs re-deriving and nothing should be assumed.
-3. Find the nine anchors by their fingerprints — each is a byte pattern, so
-   searching `.text` for it finds the new address directly.
-4. Add the row to `statmind_builds[]` in `statmind_build.h`.
+1. Keep the executable: `releases/<version>-<sha256 prefix>/`, with a
+   `manifest.json` recording where it came from, its hash and its size.
+2. Run `find_build.py NEW.exe --reference KNOWN.exe`. Never rebase a known
+   build's addresses by a constant; no two builds so far have differed by one.
+3. Paste the row into `statmind_builds[]` in `statmind_build.h`, leaving the
+   player record `0`.
 5. Run the verifier over every supported executable:
 
    ```sh
@@ -217,9 +287,10 @@ append, which is what stops `episode.py` reading a dump as a finished run.
    it, accepts each build, and then flips a bit at each of 24 trust anchors in
    turn and requires the resolver to reject all 24. A fingerprint that cannot
    fail closed is not a fingerprint.
-6. Rebuild the shim (`./build-sdl.sh`) and confirm it reports the build it
-   resolved at startup.
-7. Run the game and take a `snapshot.sh` reading for the player record.
+6. Rebuild the shim (`./build-sdl.sh`) and the reader (`./build-statmind.sh`),
+   and confirm the shim logs the build it resolved at startup.
+7. Run the game, confirm the player-record candidate against the cell table, and
+   only then put it in the table.
 
 An unrecognised executable is not a soft failure. `Statmind_FindBuild` returns
 `NULL`, the gate byte is never written, `outputScoresheet` is never called, and

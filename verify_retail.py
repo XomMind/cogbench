@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Verify owned executables against the SDL shim's actual C build resolver.
+"""Verify owned Cogmind executables against the SDL shim's actual C resolver.
 
-No game is launched. Compile the portable resolver with the host C compiler,
-map PE sections, and check acceptance plus rejection of damaged fingerprints.
+No game is launched. Compile the resolver from the header the shim really
+compiles, map PE sections, and check both that each build is accepted and that
+every trust anchor in it fails closed when a single bit is flipped.
 
-The resolver covers every address the shim itself uses, each pinned to an
-instruction. It cannot cover the four addresses StatMind reads from outside the
-process, because those are plain data with no code to fingerprint. Those are
-checked here instead, against the file on disk, where .data still holds what
-the linker put there rather than what the running game has since written.
+The resolver covers everything reachable from an instruction. Two addresses are
+not: the view origin, which at least has an initialiser to check, and the player
+record, which is zero-fill reached through a pointer and can only be settled by
+reading a running game. Those are reported here rather than proved.
 
-Usage: python3 verify_retail.py /path/to/COGMIND.exe [another/COGMIND.exe]
+Usage: python3 verify_retail.py /path/to/COGMIND.exe [more...]
 """
 
 import argparse
@@ -23,33 +23,40 @@ import struct
 import subprocess
 import tempfile
 
+IMAGE_BASE = 0x400000
+
+# .text RVAs; each is pinned to an instruction by the resolver.
+CODE_FIELDS = (
+    "init",
+    "writer",
+    "dump_bool",
+    "history_guard",
+    "epilogue",
+    "callsite",
+    "luigi_gate",
+    "cell_at",
+    "map_callsite",
+)
+# Absolute VAs of the data this build uses. The first four are encoded in the
+# instructions above, so a fingerprint match confirms them; the last three are
+# not, and luigi_test may legitimately be unknown.
+DATA_FIELDS = (
+    "active",
+    "luigi",
+    "map_object",
+    "scorekeeper",
+    "view_origin",
+    "player_rec",
+    "luigi_test",
+)
+
 
 class Build(ctypes.Structure):
     _fields_ = [
         (name, ctypes.c_uint32)
-        for name in (
-            "timestamp",
-            "init",
-            "writer",
-            "dump_bool",
-            "history_guard",
-            "epilogue",
-            "callsite",
-            "luigi_gate",
-            "cell_at",
-            "map_callsite",
-        )
+        for name in ("timestamp", "image_size") + CODE_FIELDS + DATA_FIELDS
     ]
     _fields_.append(("writer_sig", ctypes.c_ubyte * 10))
-
-
-# Fixed VAs StatMind reads over the process boundary (StatMind/src/cells.rs,
-# src/blit.rs). The image has no .reloc and no DYNAMIC_BASE, so it always loads
-# at 0x00400000 and these are literal at runtime.
-DATA_SECTION = {"rva": 0x8A8000, "vsize": 0x943FC}
-MAP_OBJ = 0x00CFD44C  # { int width; int height; Cell **cells; }
-VIEW_ORIGIN = 0x00CD8FA4  # { int x; int y; } -- linker initialiser is (27, 8)
-PLAYER_REC = 0x00D2D338  # { u32 handle; i32 x; i32 y; i32 entity_id }
 
 
 def map_pe(data):
@@ -61,8 +68,12 @@ def map_pe(data):
     count = struct.unpack_from("<H", data, pe + 6)[0]
     opt_size = struct.unpack_from("<H", data, pe + 20)[0]
     size, headers = struct.unpack_from("<II", data, pe + 24 + 56)
-    if size != 0x940000 or not 0 < headers <= min(size, len(data)):
-        raise ValueError("unexpected image/header size")
+    # Size is not fixed across builds -- the Steam executable is a page larger
+    # than the others -- so bound it rather than pinning it.
+    if not 0x800000 <= size <= 0x1000000 or not 0 < headers <= min(size, len(data)):
+        raise ValueError(
+            "unexpected image size 0x%X or header size 0x%X" % (size, headers)
+        )
     image = bytearray(size)
     image[:headers] = data[:headers]
     sections = {}
@@ -77,35 +88,52 @@ def map_pe(data):
     return image, pe, sections
 
 
-def verify_data(image, sections):
-    """Check the fixed .data addresses StatMind reads over the process boundary.
+def verify_data(build, image, sections):
+    """Report on the data addresses, and check the ones that can be checked.
 
-    These carry no instruction to fingerprint, so the evidence is the layout
-    itself: an identical .data start and virtual size means the linker placed
-    the whole section, zero-fill tail included, exactly where it was before.
-    That is what fixes the three zero-fill addresses; the view origin sits in
-    initialised data and can be checked against its initialiser outright.
+    Four of these are encoded in instructions the resolver already matched, so
+    reaching here means they are confirmed. The view origin is initialised data
+    and is checked against its initialiser. The player record is zero-fill with
+    no reference anywhere in .text, so there is nothing to check it against.
     """
     data = sections.get(".data")
-    if data != DATA_SECTION:
+    if not data:
+        raise ValueError("no .data section")
+    lo = IMAGE_BASE + data["rva"]
+    hi = lo + data["vsize"]
+    out = {"data_section": "rva 0x%X, vsize 0x%X" % (data["rva"], data["vsize"])}
+
+    for name in ("active", "luigi", "map_object", "scorekeeper"):
+        va = getattr(build, name)
+        if not lo <= va < hi:
+            raise ValueError("%s 0x%08X is outside .data" % (name, va))
+        out[name] = "0x%08X, pinned by instruction" % va
+
+    origin = build.view_origin
+    if not lo <= origin < hi:
+        raise ValueError("view origin 0x%08X is outside .data" % origin)
+    pair = struct.unpack_from("<ii", image, origin - IMAGE_BASE)
+    if pair != (27, 8):
         raise ValueError(
-            ".data moved or resized: %r, expected %r -- every fixed"
-            " address below is unsafe on this build" % (data, DATA_SECTION)
+            "view origin 0x%08X initialiser is %r, expected (27, 8)" % (origin, pair)
         )
-    origin = struct.unpack_from("<ii", image, VIEW_ORIGIN - 0x400000)
-    if origin != (27, 8):
-        raise ValueError("view origin initialiser is %r, expected (27, 8)" % (origin,))
-    text = sections[".text"]
-    span = bytes(image[text["rva"] : text["rva"] + text["vsize"]])
-    return {
-        "data_section": "rva 0x%X, vsize 0x%X, as expected"
-        % (data["rva"], data["vsize"]),
-        "map_object": "0x%08X, this in %d thiscall sites"
-        % (MAP_OBJ, span.count(struct.pack("<BI", 0xB9, MAP_OBJ))),
-        "view_origin": "0x%08X, initialiser (27, 8)" % VIEW_ORIGIN,
-        "player_record": "0x%08X, zero-fill with no static reference"
-        " -- confirm at runtime with snapshot.sh" % PLAYER_REC,
-    }
+    out["view_origin"] = "0x%08X, initialiser (27, 8)" % origin
+
+    if build.player_rec:
+        if not lo <= build.player_rec < hi:
+            raise ValueError("player record 0x%08X is outside .data" % build.player_rec)
+        out["player_rec"] = (
+            "0x%08X, zero-fill with no static reference"
+            " -- confirmed only by a live reading" % build.player_rec
+        )
+    else:
+        out["player_rec"] = (
+            "not located on this build; the reader refuses player queries"
+        )
+    out["luigi_test"] = (
+        ("0x%08X" % build.luigi_test) if build.luigi_test else "not identified"
+    )
+    return out
 
 
 def verify(path, resolve):
@@ -116,8 +144,9 @@ def verify(path, resolve):
     if not result:
         raise ValueError(f"{path}: unsupported build or fingerprint mismatch")
     build = result.contents
-    # Every trust anchor, including the relative call and singleton, must fail
-    # closed when corrupted. Exercise the production C resolver, not a copy.
+    # Every trust anchor, including each address embedded in an instruction and
+    # the relative calls, must fail closed when corrupted. This exercises the
+    # production C resolver, not a copy of it.
     mutations = [
         0,
         pe,
@@ -133,16 +162,18 @@ def verify(path, resolve):
         build.dump_bool,
         build.history_guard,
         build.epilogue,
-        build.callsite,
-        build.callsite + 7,
-        build.callsite + 11,
-        build.callsite + 12,
         build.luigi_gate,
+        build.luigi_gate + 3,
+        build.luigi_gate + 12,
         build.cell_at,
         build.cell_at + 14,
         build.map_callsite,
         build.map_callsite + 1,
         build.map_callsite + 6,
+        build.callsite,
+        build.callsite + 7,
+        build.callsite + 11,
+        build.callsite + 12,
     ]
     for offset in mutations:
         image[offset] ^= 0x40
@@ -154,11 +185,11 @@ def verify(path, resolve):
         "bytes": len(data),
         "sha256": hashlib.sha256(data).hexdigest(),
         "timestamp": hex(build.timestamp),
-        "addresses": {
-            name: hex(0x400000 + getattr(build, name))
-            for name, _ in Build._fields_[1:-1]
+        "image_size": hex(build.image_size),
+        "code_addresses": {
+            name: hex(IMAGE_BASE + getattr(build, name)) for name in CODE_FIELDS
         },
-        "data_addresses": verify_data(image, sections),
+        "data_addresses": verify_data(build, image, sections),
         "rejection_checks": len(mutations),
         "static_verification": "passed",
         "runtime_verification": "not performed by this tool",

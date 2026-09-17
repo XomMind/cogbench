@@ -100,9 +100,10 @@ builder's CPU; moving to different hardware needs a build configuration review.
 ## Supported game builds
 
 The shim writes to the game's memory and calls into it, so it runs only against
-executables it recognises. Two Beta 17.1 builds are supported; they share a
-version string but their code sits at different addresses, and each is pinned to
-its own set of instruction fingerprints in
+executables it recognises. Three Beta 17.1 builds are supported — two standalone
+and one from Steam. They share a version string, but no address is shared
+between all three, so each is described by its own row of instruction
+fingerprints in
 [`statmind_build.h`](../StatMind/SDL-1.2/src/statmind_build.h). Anything else is
 refused, and the game then runs normally with LuigiAI and stat dumps off.
 
@@ -110,6 +111,12 @@ Check an executable without launching anything:
 
 ```sh
 python3 verify_retail.py "path/to/COGMIND (Beta 17.1)/COGMIND.exe"
+```
+
+Work out the row for a build that is not yet supported:
+
+```sh
+python3 find_build.py NEW.exe --reference "path/to/a/known/COGMIND.exe"
 ```
 
 Keep each new release unmodified under `releases/<version>-<sha256 prefix>/`.
