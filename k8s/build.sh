@@ -72,6 +72,61 @@ for j in bots.json items.json machine_hacks.json; do
   cp "$root/cog-minder/src/json/$j" "$ctx/harness/cog-minder/src/json/"
 done
 
+# The reader is compiled in the image now, so its source has to reach the build
+# context too. Only the crate: no target/, which is gigabytes of build output.
+sm=$(cd "$root/../StatMind" && pwd)
+rm -rf "$ctx/statmind"
+mkdir -p "$ctx/statmind"
+cp "$sm/Cargo.toml" "$sm/Cargo.lock" "$sm/build.rs" "$ctx/statmind/"
+cp -R "$sm/src" "$ctx/statmind/src"
+
+# ...and so does SDL-1.2, which this used to exclude on the grounds that "the
+# shim is a Windows DLL, built separately". It is still a Windows DLL; building
+# it separately is what went wrong. The reader above and the shim exchange
+# StatmindLuigiStatus by memory layout, so they are one artifact in two files,
+# and the only way to keep them in step is to build them from the same tree in
+# the same place. The hand-built DLL staged onto the PVC fell months behind:
+# its struct ended at 28 bytes where the reader read 44, so `map_object` came
+# back as the neighbouring census magic and every cell read failed with EFAULT.
+#
+# The cost is the context: ~8MB, nearly all of it src/, against 2.8MB before.
+# That is a second or two to an in-cluster BuildKit and only when a file
+# changes, which is worth paying to make the drift unrepresentable. The
+# exclusions below are what keep it to 8MB rather than 17MB.
+#
+#   build-win32/  the maintainer's out-of-tree build. Object files from another
+#                 compiler and a Makefile full of /Users paths; it would also
+#                 hand the image stale .lo files to skip recompiling.
+#   configure,    generated, and gitignored precisely because they are. The
+#   aclocal.m4    image regenerates them with its own autoconf, so what ships
+#                 is never an artifact someone happened to have lying about.
+#   docs/ test/   1.8MB of HTML and a test suite; configure builds neither.
+#   *.zip *.bin   Borland/Watcom/Symbian/CodeWarrior project archives, ~900KB
+#                 of build systems for platforms that are not this one.
+sdl=$sm/SDL-1.2
+[ -f "$sdl/configure.in" ] || {
+  echo "no SDL sources at $sdl -- run: git -C $sm submodule update --init" >&2
+  exit 1
+}
+rm -rf "$ctx/sdl"
+mkdir -p "$ctx/sdl"
+for d in src include build-scripts acinclude; do
+  cp -R "$sdl/$d" "$ctx/sdl/$d"
+done
+# configure.in plus the templates AC_CONFIG_FILES names. SDL.qpg.in and
+# SDL.spec.in build nothing, but configure substitutes all five and dies on a
+# missing one. README is not documentation here: it is the file
+# AC_CONFIG_SRCDIR names, so configure uses it to decide it is looking at an
+# SDL tree at all, and without it stops at "cannot find sources (README)".
+for f in README configure.in Makefile.in sdl-config.in sdl.pc.in SDL.qpg.in SDL.spec.in; do
+  cp "$sdl/$f" "$ctx/sdl/"
+done
+# Belt and braces: cp -R above follows the working tree, and a maintainer who
+# has ever run build-sdl.sh in-tree rather than out-of-tree would otherwise
+# ship object files into the context.
+find "$ctx/sdl" \( -name '*.o' -o -name '*.lo' -o -name '*.a' -o -name '*.la' \
+  -o -name '.libs' -o -name '.deps' \) -exec rm -rf {} + 2>/dev/null || true
+
 echo "building $image"
 buildctl --addr "$buildkit" build \
   --frontend dockerfile.v0 \

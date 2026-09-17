@@ -50,10 +50,56 @@ test -f "$game_dir/COGMIND.exe" || {
   echo "missing $game_dir/COGMIND.exe; run k8s/stage-game.sh" >&2
   exit 1
 }
-test -f "$game_dir/SDL.dll" || {
-  echo "missing $game_dir/SDL.dll; stage the patched SDL shim" >&2
+
+# Install the patched SDL shim from the image, over whatever the PVC holds.
+#
+# Wine loads SDL.dll from beside COGMIND.exe, so it has to live on the PVC --
+# but the PVC is the one place nothing rebuilds. The shim and /usr/local/bin/
+# statmind exchange StatmindLuigiStatus by memory layout and are built from the
+# same tree in the same image for that reason; a DLL that predates the reader
+# is not an old DLL, it is a reader indexing into fields that were never
+# written. The copy staged here by hand fell far enough behind that
+# `map_object` resolved to the census magic 28 bytes into a 44-byte struct, and
+# the symptom was `Bad address (os error 14)` out of a cell read -- which
+# points at the read, not at the pairing.
+#
+# So: copied every start, not only when missing. The reader's own guard catches
+# the mismatch now, but catching it still costs a run; this is what stops it
+# occurring. COGBENCH_SDL_INSTALL=0 leaves the PVC copy alone, which is for
+# bisecting a suspect shim by hand and nothing else.
+shim=${COGBENCH_SDL_SHIM:-/opt/cogbench/SDL.dll}
+if [ "${COGBENCH_SDL_INSTALL:-1}" = "0" ]; then
+  test -f "$game_dir/SDL.dll" || {
+    echo "missing $game_dir/SDL.dll and COGBENCH_SDL_INSTALL=0" >&2
+    exit 1
+  }
+  echo "SDL.dll: leaving the PVC copy in place (COGBENCH_SDL_INSTALL=0)"
+elif [ ! -f "$shim" ]; then
+  echo "missing $shim -- this image was built without the SDL stage" >&2
   exit 1
-}
+elif cmp -s "$shim" "$game_dir/SDL.dll"; then
+  echo "SDL.dll: already this image's shim ($(wc -c <"$shim") bytes)"
+else
+  # Keep the copy being replaced, once per actual replacement -- the branch
+  # above means an unchanged shim never overwrites the backup with itself.
+  # SDL.dll.pre-cogbench, if it is there, is the stock DLL the game shipped
+  # with and is not this script's to touch.
+  if [ -f "$game_dir/SDL.dll" ]; then
+    cp "$game_dir/SDL.dll" "$game_dir/SDL.dll.prev" || {
+      echo "could not back up $game_dir/SDL.dll" >&2
+      exit 1
+    }
+  fi
+  # Through a temporary file in the same directory, so the DLL is replaced by a
+  # rename and never exists half-written. A truncated SDL.dll does not fail
+  # here, it fails in Wine's loader after the game is already starting.
+  cp "$shim" "$game_dir/.SDL.dll.new" && mv -f "$game_dir/.SDL.dll.new" "$game_dir/SDL.dll" || {
+    rm -f "$game_dir/.SDL.dll.new"
+    echo "could not install $shim over $game_dir/SDL.dll" >&2
+    exit 1
+  }
+  echo "SDL.dll: installed from the image ($(wc -c <"$shim") bytes; previous kept as SDL.dll.prev)"
+fi
 
 mkdir -p "$HOME" "$WINEPREFIX" "$profile"
 

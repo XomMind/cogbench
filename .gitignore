@@ -17,10 +17,16 @@ __pycache__/
 !*.md
 !notes/*.md
 
-# Staged build context for the container image: a copy of the files listed in
+# Staged build context for the container image: copies of the files listed in
 # k8s/build.sh, written next to the Dockerfile because BuildKit cannot read
 # outside its context. Generated on every build, never edited.
+#
+# statmind/ was missed when the reader moved into the image and sdl/ would have
+# been missed the same way -- together they are ~9MB of duplicated source, and
+# committing a copy is how the copy starts drifting from the original.
 k8s/image/harness/
+k8s/image/statmind/
+k8s/image/sdl/
 
 # Glyph measurements, rebuilt from the font on demand.
 .glyphcache.json
