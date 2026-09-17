@@ -16,3 +16,14 @@ __pycache__/
 # work depends on. Repo rules take precedence over core.excludesfile.
 !*.md
 !notes/*.md
+
+# Staged build context for the container image: a copy of the files listed in
+# k8s/build.sh, written next to the Dockerfile because BuildKit cannot read
+# outside its context. Generated on every build, never edited.
+k8s/image/harness/
+
+# Glyph measurements, rebuilt from the font on demand.
+.glyphcache.json
+
+# Recorded observation traces. Output of a run, not input to one.
+data/*.jsonl

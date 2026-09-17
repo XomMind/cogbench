@@ -1,0 +1,256 @@
+#!/bin/sh
+# Cogbench container entrypoint.
+#
+# Differs from the original in one way: the X display geometry is a variable.
+# Cogmind runs fullscreen and lays itself out to whatever resolution it finds,
+# so this is the only place the stream's aspect ratio is decided.
+#
+# COGBENCH_XVFB_SIZE defaults to 1920x1440x24 -- 4:3, and exactly twice the
+# 960x720 the stream canvas wants, so the frame grabber halves it with a clean
+# box filter instead of resampling text onto a non-integer grid. 1440x1080 is
+# also 4:3 but scales by 2/3 and turns the glyphs to mush.
+set -eu
+
+game_dir=${COGBENCH_GAME_DIR:-/data/game}
+profile=${COGBENCH_PROFILE:-/data/profile}
+# A different world every run, unless someone asks for a specific one.
+#
+# The old default was the fixed string COGBENCH1, which meant every fresh
+# profile got the same map -- fine for a reproducible benchmark, wrong for a
+# stream, and it hid the fact that the seed was being ignored entirely for
+# existing profiles. Setting COGBENCH_SEED still pins it when a run needs to be
+# repeatable.
+seed=${COGBENCH_SEED:-}
+if [ -z "$seed" ]; then
+  seed=$(python3 -c "import random, string
+print(''.join(random.choice(string.ascii_uppercase + string.digits)
+              for _ in range(8)))")
+  echo "random seed: $seed"
+fi
+# Loop mode ends the episode by ending this container, and leaves the next
+# seed behind so the new one is a different run rather than the same map over
+# again. Consumed here so a manual restart later is not still replaying it.
+next_seed=${COGBENCH_NEXT_SEED:-/data/next-seed}
+fresh_episode=0
+if [ -s "$next_seed" ]; then
+  seed=$(cat "$next_seed")
+  rm -f "$next_seed"
+  fresh_episode=1
+  echo "seed from loop: $seed"
+elif ! ls "$profile"/user/save_*.sav >/dev/null 2>&1; then
+  # No save to resume, so whatever starts now is a new run and the seed above
+  # is the one it should use. Without this the seed is only ever applied on the
+  # loop path, and a plain restart silently replays the last world.
+  fresh_episode=1
+fi
+wine_log=${COGBENCH_WINE_LOG:-/data/wine.log}
+xvfb_size=${COGBENCH_XVFB_SIZE:-1920x1440x24}
+
+test -f "$game_dir/COGMIND.exe" || {
+  echo "missing $game_dir/COGMIND.exe; run k8s/stage-game.sh" >&2
+  exit 1
+}
+test -f "$game_dir/SDL.dll" || {
+  echo "missing $game_dir/SDL.dll; stage the patched SDL shim" >&2
+  exit 1
+}
+
+mkdir -p "$HOME" "$WINEPREFIX" "$profile"
+
+# Audio. The container has no /dev/snd, so Cogmind would play to nothing at
+# all; instead a PulseAudio daemon owns a null sink whose monitor the audio
+# sidecar records. The socket goes in a shared volume so the sidecar can reach
+# it, and anonymous auth is fine because the only thing that can see that
+# socket is another container in this pod.
+# PulseAudio refuses an XDG_RUNTIME_DIR it does not own, and a k8s emptyDir
+# arrives owned by root even with fsGroup set -- so use a subdirectory we
+# create ourselves, and keep the socket itself in the shared root where the
+# audio sidecar can reach it.
+# The base image bakes in SDL_AUDIODRIVER=dummy -- correct when there was no
+# sound device, but "dummy" is a real backend in both SDL.dll and SDL2.dll, so
+# Cogmind was opening it and playing into nothing. Nothing downstream was ever
+# wrong: the null sink, winepulse and the ALSA bridge were all reachable, the
+# game just never asked for them. Clearing it lets SDL pick dsound/wasapi,
+# which Wine routes to winepulse. COGBENCH_SDL_AUDIODRIVER forces a backend.
+if [ -n "${COGBENCH_SDL_AUDIODRIVER:-}" ]; then
+  export SDL_AUDIODRIVER="$COGBENCH_SDL_AUDIODRIVER"
+else
+  unset SDL_AUDIODRIVER
+fi
+
+pulse_dir=${COGBENCH_PULSE_DIR:-/tmp/pulse}
+export XDG_RUNTIME_DIR="$pulse_dir/run"
+export PULSE_SERVER="unix:$pulse_dir/native"
+mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
+# The pulse volume is an emptyDir, which survives a container restart even
+# though the daemon that wrote it does not. PulseAudio then finds its own pid
+# file, decides it is already running, and refuses to start -- so a restarted
+# container comes back silent, with nothing in the logs but "Daemon already
+# running". Clear the leftovers whenever no daemon is actually alive. This is
+# on every restart path, but loop mode restarts the container on purpose after
+# every episode, so without it the stream loses audio after the first death.
+if ! pgrep -x pulseaudio >/dev/null 2>&1; then
+  # PulseAudio keeps its runtime state in a "pulse" subdirectory of
+  # XDG_RUNTIME_DIR, so the stale file is $XDG_RUNTIME_DIR/pulse/pid -- not
+  # the path the daemon reports in its error.
+  rm -rf "$XDG_RUNTIME_DIR/pulse" "$pulse_dir/native"
+fi
+
+if command -v pulseaudio >/dev/null 2>&1; then
+  pulseaudio --daemonize=yes --exit-idle-time=-1 --disallow-exit \
+    --disable-shm=yes --log-target=file:/data/pulse.log \
+    --load="module-null-sink sink_name=cogbench sink_properties=device.description=Cogbench" \
+    --load="module-native-protocol-unix auth-anonymous=1 socket=$pulse_dir/native" \
+    >/dev/null 2>&1 || echo "pulseaudio failed to start; the game will be silent" >&2
+  sleep 1
+  pactl set-default-sink cogbench >/dev/null 2>&1 || true
+  # Wine picks its audio driver from the registry, not the environment.
+  wine reg add 'HKCU\Software\Wine\Drivers' /v Audio /d pulse /f >/dev/null 2>&1 || true
+fi
+find "$game_dir" "$profile" -type f -iname discord.txt -delete
+python3 /opt/cogbench/episode.py init --seed "$seed"
+
+# A new episode means a new map, and neither half of that happens by itself.
+#
+# episode.py init only writes options.cfg when the file is missing, so for an
+# existing profile the seed it is handed is silently dropped -- every episode
+# so far replayed the identical map, which is why the agent kept wedging on the
+# same three cells run after run. And a leftover save resumes the previous run
+# regardless of the seed, so the saves have to go too or the new seed is moot.
+#
+# Both are done here, only when a new episode was actually asked for, and with
+# the game not yet running -- Cogmind rewrites options.cfg when it exits, so
+# this is the only safe moment.
+if [ "$fresh_episode" = "1" ]; then
+  python3 - "$profile/user/options.cfg" "worldSeed=\"$seed\"" <<'PYSEED' || true
+import re, sys
+path, pair = sys.argv[1], sys.argv[2]
+try:
+    s = open(path, encoding="utf-8").read()
+except OSError:
+    sys.exit(0)
+key = pair.split("=", 1)[0]
+new, n = re.subn(r"(?m)^%s=.*$" % re.escape(key), lambda m: pair, s)
+if not n:
+    new = s.rstrip("\n") + "\n" + pair + "\n"
+if new != s:
+    open(path, "w", encoding="utf-8").write(new)
+    print("options.cfg: " + pair)
+PYSEED
+  rm -f "$profile"/user/save_*.sav
+  echo "new episode: seed $seed, saves cleared"
+fi
+
+# Settings Cogmind keeps in system.cfg. The game owns that file and rewrites
+# it when it exits, so editing it while the game is up loses the change on the
+# next restart -- and loop mode restarts after every episode. Here, after the
+# profile exists and before the game launches, is the one point where it holds.
+#
+#   fontSet       the in-game typeface. The 18/ size class is not optional:
+#                 the harness reads the screen on a 9x18 glyph grid, and every
+#                 set in this class is 9x18, so switching within it changes the
+#                 typeface and nothing else. A different size moves every cell
+#                 and the screen reader comes apart.
+#   keyboardMode  keyboard play rather than mouse. Nothing here drives the game
+#                 with a mouse anyway -- the agent talks to LuigiAI directly --
+#                 so the pointer only ever produced hover state and a cursor on
+#                 the stream.
+python3 - "$profile/user/system.cfg" \
+  "fontSet=\"${COGBENCH_FONTSET:-18/Cog}\"" \
+  "keyboardMode=${COGBENCH_KEYBOARD_MODE:-1}" <<'PYCFG' || true
+import re, sys
+path, pairs = sys.argv[1], sys.argv[2:]
+try:
+    s = open(path, encoding="utf-8").read()
+except OSError:
+    sys.exit(0)                     # first boot; the game writes it itself
+orig = s
+for pair in pairs:
+    key = pair.split("=", 1)[0]
+    # A lambda replacement: the values contain quotes and backslashes that re
+    # would otherwise read as group references.
+    s, n = re.subn(r"(?m)^%s=.*$" % re.escape(key), lambda m: pair, s)
+    if not n:
+        s = s.rstrip("\n") + "\n" + pair + "\n"
+if s != orig:
+    open(path, "w", encoding="utf-8").write(s)
+    print("system.cfg: " + ", ".join(pairs))
+PYCFG
+# The original entrypoint also ran `episode.py audit`; this harness's episode.py
+# has no such subcommand, and the check was advisory -- `init` is what actually
+# prepares the profile and seed.
+
+echo "Xvfb $DISPLAY -screen 0 $xvfb_size"
+Xvfb "$DISPLAY" -screen 0 "$xvfb_size" -nolisten tcp >/data/xvfb.log 2>&1 &
+xvfb_pid=$!
+win_profile=$(winepath -w "$profile")
+
+cleanup() {
+  kill "$game_pid" "$xvfb_pid" ${runner_pid:-} 2>/dev/null || true
+  wineserver -k 2>/dev/null || true
+}
+game_pid=
+runner_pid=
+trap cleanup EXIT
+trap 'cleanup; exit 0' INT TERM
+
+cd "$game_dir"
+wine COGMIND.exe -luigiAi "-customFilePath:$win_profile" >"$wine_log" 2>&1 &
+game_pid=$!
+
+i=0
+while ! pgrep -f 'COGMIND.exe.*-luigiAi' >/dev/null; do
+  i=$((i + 1))
+  if ! kill -0 "$game_pid" 2>/dev/null || [ "$i" -ge 60 ]; then
+    echo "Cogmind did not start" >&2
+    tail -80 "$wine_log" >&2 || true
+    exit 1
+  fi
+  sleep 1
+done
+
+# The run lifecycle service. It owns the agent process so that starting,
+# stopping and restarting a run is a button on the control page rather than a
+# kubectl exec -- which is the only way to recover a dead bot mid-stream. It
+# binds loopback and the overlay container proxies /run/* to it.
+python3 /opt/cogbench/runner.py serve --port "${COGBENCH_RUNNER_PORT:-8099}" \
+  >/data/runner.log 2>&1 &
+runner_pid=$!
+
+# Off by default: a pod that restarts itself into a live run is a surprise, and
+# whether to play is a decision for whoever is streaming. Set it when the
+# harness is meant to come back up playing on its own.
+# Either the pod is configured to come up playing, or loop mode armed it on
+# its way out of the previous episode.
+armed=$(python3 -c "
+import json,sys
+try:
+    print('1' if json.load(open(sys.argv[1])).get('autostart') else '0')
+except Exception:
+    print('0')" "${COGBENCH_STREAM_DIR:-/data/stream}/run-spec.json" 2>/dev/null || echo 0)
+if [ "${COGBENCH_AUTOSTART:-0}" != "0" ] || [ "$armed" = "1" ]; then
+  # python rather than curl: the image has no curl, and adding one for a
+  # single POST is not worth the layer.
+  (sleep 8; python3 -c "import urllib.request,sys; urllib.request.urlopen(
+     urllib.request.Request(sys.argv[1], method='POST'), timeout=30)" \
+     "http://127.0.0.1:${COGBENCH_RUNNER_PORT:-8099}/run/start" >/dev/null 2>&1) &
+fi
+
+attempt=0
+while kill -0 "$game_pid" 2>/dev/null; do
+  if python3 /opt/cogbench/cogbench.py --statmind /usr/local/bin/statmind daemon; then
+    exit 0
+  fi
+
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 90 ]; then
+    echo "StatMind did not find the Cogmind mailbox" >&2
+    tail -80 "$wine_log" >&2 || true
+    exit 1
+  fi
+  sleep 1
+done
+
+echo "Cogmind exited before StatMind became ready" >&2
+tail -80 "$wine_log" >&2 || true
+exit 1

@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cogbench Stream</title>
+<!--
+  One Browser Source at 1920x1080 carries the whole scene: the game video, the
+  perf monitor and the decision feed. Compositing the video in here rather than
+  as a separate OBS source means one thing to add, one thing to reposition, and
+  no chance of the layers drifting out of alignment when the canvas is resized.
+
+  Query flags:
+    ?cam=1     reserve a transparent 480x480 square in the bottom corner of
+               the right column for a 1:1 webcam source placed under it in OBS
+    ?panel=hud the original panel (resources, parts, log) instead of the
+               agent-only one
+    ?video=0   leave the game area transparent and composite the MJPEG as its
+               own OBS source instead
+-->
+<link rel="stylesheet" href="https://cogmind-cdn.plasticheart.info/cogfont.css">
+<style>
+  :root {
+    --bg:   rgba(6,14,8,.86);
+    --line: #1c3a22;
+    --dim:  #4e7f5c;
+    --fg:   #7fe0a0;
+    --hot:  #cfffe0;
+    --warn: #ffd166;
+    --bad:  #ff6b6b;
+    --cy:   #63d8ff;
+    --mag:  #c98bff;
+    /* Cogmind's own in-game fonts, from the CDN, with the old stack kept
+       behind them: a Browser Source on a machine that cannot reach the CDN
+       still renders a correct overlay rather than a broken one. "Cog" is the
+       game's text face; "Smallcaps" is what the all-caps labels here were
+       already imitating, so they get the real thing. */
+    --mono: cogmind-cog, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --caps: cogmind-smallcaps, var(--mono);
+    /* The fogged map is a character grid and must stay on a font with uniform
+       advance widths -- it is the one place where the game's own face is the
+       wrong choice if it is not metrically monospace. */
+    --grid: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --gameW: 1440px; --gameH: 1080px; --sideW: 480px;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { background: transparent; width: 100%; height: 100%; overflow: hidden; }
+  /* The scene is authored at exactly 1920x1080 and then scaled to whatever it
+     is being viewed in. OBS renders the source at 1920x1080, so there it is
+     1:1 -- and the game inside it is 1440x1080 native, never resampled.
+     A browser window of any other size gets the layout shrunk, not clipped.
+
+     The column is a separate matter: its type was tuned at 320px wide, so it
+     stays authored at 320x720 and is scaled 1.5x into the 480x1080 cell. That
+     keeps every size relationship in it exactly as tuned, and text scales as
+     vectors, so nothing goes soft. */
+  #canvas {
+    width: 1920px; height: 1080px;
+    transform-origin: top left;
+    font-family: var(--mono); color: var(--fg); font-size: 12px;
+    display: grid;
+    grid-template-columns: var(--gameW) var(--sideW);
+    grid-template-rows: var(--gameH);
+  }
+  #game { grid-column: 1; grid-row: 1; position: relative; overflow: hidden;
+          background: #000; }
+  #game img { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+  body.novideo #game { background: transparent; }
+  body.novideo #game img { display: none; }
+
+  #sidewrap { grid-column: 2; grid-row: 1; overflow: hidden; }
+  #side { width: 320px; height: 720px; transform: scale(1.5);
+          transform-origin: top left; display: flex; flex-direction: column;
+          gap: 5px; padding: 5px; min-height: 0; }
+  #side > .card { flex: none; }
+  #feed { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  #logc { flex: 0 0 132px; min-height: 0; overflow: hidden; }
+  /* The webcam scene gives up 320px of column, so two cards go. The log and
+     the build are the right ones to lose: the game's own UI already shows the
+     parts list and the message log on screen, while the decision feed and the
+     inference numbers exist nowhere else. */
+  body.cam #logc, body.cam #build { display: none; }
+
+  /* A transparent 1:1 hole in the bottom corner for the camera source to sit
+     in. Nothing is drawn here -- OBS composites the webcam underneath. */
+  #camhole { display: none; height: 320px; flex: none; }
+  body.cam #camhole { display: block; }
+
+  .card { background: var(--bg); border: 1px solid var(--line); border-radius: 3px;
+          padding: 6px 8px; }
+  /* Cogmind's faces are wider per character than the mono stack these sizes
+     were tuned against, so every all-caps label here comes down a notch and is
+     told not to wrap -- otherwise "AGENT VIEW" and "GEN TOK/S" break onto a
+     second line and push the card's contents out of its box. */
+  .hd { display: flex; justify-content: space-between; align-items: baseline;
+        font-family: var(--caps); white-space: nowrap; gap: 8px;
+        color: var(--dim); font-size: 8.5px; letter-spacing: .1em;
+        text-transform: uppercase; margin-bottom: 4px; }
+  .hd b { color: var(--fg); font-weight: 600; letter-spacing: .04em;
+          text-transform: none; font-size: 11px; }
+
+  /* perf */
+  .big { display: flex; align-items: baseline; gap: 6px; }
+  .big .v { font-size: 40px; line-height: .95; color: var(--hot); font-weight: 600;
+            font-variant-numeric: tabular-nums; }
+  .big .u { color: var(--dim); font-size: 10px; }
+  svg.spark { display: block; width: 100%; height: 30px; margin-top: 4px; }
+  .phase { display: flex; height: 13px; border: 1px solid var(--line);
+           border-radius: 2px; overflow: hidden; font-size: 9px; margin-top: 4px; }
+  .phase div { display: flex; align-items: center; justify-content: center;
+               color: #04140a; font-weight: 700; white-space: nowrap; overflow: hidden; }
+  .pp { background: var(--cy); } .tg { background: var(--fg); }
+  .idle { background: #16281c; color: var(--dim) !important; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px 6px;
+          margin-top: 5px; }
+  .k { font-family: var(--caps); color: var(--dim); font-size: 7.5px;
+       letter-spacing: .06em; white-space: nowrap; }
+  .n { font-size: 13px; color: var(--hot); font-variant-numeric: tabular-nums;
+       white-space: nowrap; }
+  .n small { font-size: 8.5px; color: var(--dim); }
+
+  /* run */
+  .bar { display: grid; grid-template-columns: 44px 1fr 62px; gap: 5px;
+         align-items: center; margin-top: 3px; }
+  .bar .t { font-family: var(--caps); color: var(--dim); font-size: 8px;
+             letter-spacing: .04em; white-space: nowrap; }
+  .bar .track { height: 7px; background: #10261a; border: 1px solid var(--line);
+                display: block; overflow: hidden; }
+  /* display:block matters. The track is a grid item so it gets blockified for
+     free, but the fill is a plain inline span inside it -- and width/height do
+     not apply to non-replaced inline elements, so every bar drew empty
+     regardless of the value. */
+  .bar .fill { display: block; height: 100%; transition: width .25s linear; }
+  .bar .num { text-align: right; font-size: 11px; color: var(--hot);
+              font-variant-numeric: tabular-nums; }
+  .parts div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+               font-size: 11px; }
+  .parts .s { font-family: var(--caps); color: var(--dim); font-size: 8px;
+               letter-spacing: .04em; }
+  .parts .empty { color: #2f5c3d; }
+
+  /* feed + log */
+  .row { display: flex; gap: 6px; font-size: 11.5px; line-height: 1.45; }
+  .row .i { color: var(--dim); width: 22px; text-align: right; flex: none; }
+  .row .a { color: var(--hot); width: 76px; flex: none; }
+  .row .r { color: var(--dim); white-space: nowrap; overflow: hidden;
+            text-overflow: ellipsis; }
+  #logc div { color: var(--dim); font-size: 11px; line-height: 1.45;
+              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #logc div:last-child { color: var(--fg); }
+
+  /* Two panels, one column. The HUD one mirrors the game and is kept as its
+     own scene (?panel=hud); the default shows only what the game cannot. */
+  #agentpanel, #hudpanel { display: contents; }
+  body:not(.hud) #hudpanel { display: none; }
+  body.hud #agentpanel { display: none; }
+  /* Single-card mode ignores the panel switch entirely. #runc and #build live
+     inside #hudpanel, which is display:none unless ?panel=hud -- and a hidden
+     parent beats the only-* rule on the card itself, so only=run and only=build
+     rendered an empty page however the card was styled. The other seven cards
+     are either in #agentpanel (shown by default) or direct children of #side,
+     which is why they worked and these two did not. */
+  body.only #agentpanel, body.only #hudpanel { display: contents; }
+
+  pre.fov { font-family: var(--grid); font-size: 12px; line-height: 1.02; letter-spacing: 1.5px;
+            margin: 0; color: var(--dim); white-space: pre; }
+  pre.fov .me { color: #fff; font-weight: 700; }
+  pre.fov .un { color: #1b2f22; }          /* never seen */
+  pre.fov .wa { color: #2f6b45; }          /* wall */
+  pre.fov .it { color: var(--warn); }      /* something on the floor */
+  pre.fov .ho { color: var(--bad); font-weight: 700; }
+  pre.fov .ex { color: var(--cy); font-weight: 700; }
+  .chips { display: flex; flex-wrap: wrap; gap: 3px; }
+  .chip { font-family: var(--caps); font-size: 9px; letter-spacing: .06em; padding: 1px 4px; border-radius: 2px;
+          border: 1px solid var(--line); color: var(--dim); }
+  .chip.on  { color: #04140a; background: var(--fg); border-color: var(--fg);
+              font-weight: 700; }
+  .chip.bad { color: #180404; background: var(--bad); border-color: var(--bad);
+              font-weight: 700; }
+  .dossier { margin-top: 4px; font-size: 10px; color: var(--cy);
+             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #raw { font-size: 11px; color: var(--hot); margin-bottom: 3px;
+         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #raw::before { content: "> "; color: var(--dim); }
+  body.cam #guards { display: none; }
+  #quip { font-size: 12.5px; color: var(--hot); line-height: 1.4; }
+  #chatc { display: none; }                 /* opt-in: ?only=chat, or ?chat=1 */
+  body.showchat #chatc, body.only-chat #chatc { display: block; }
+  #chat div { font-size: 10.5px; color: var(--cy); line-height: 1.35;
+              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Vertical scene, for a 1080x1920 canvas -- phones and the vertical
+     mirror of the stream.
+     The game lands on top at exactly 1080x810: the X display is 1440x1080 and
+     both are 4:3, so it fills the width with no letterbox and no distortion.
+     That leaves 1110px underneath for the panel.
+
+     The column is authored at 540 and scaled 2x rather than authored at 1080,
+     for the same reason the desktop one is authored at 320 and scaled 1.5x --
+     every size relationship in these cards was tuned at a narrow width, and
+     scaling type as vectors keeps it. 2x also happens to be about right for a
+     phone: a viewer holding this at 400px wide reads it at roughly the size a
+     desktop viewer reads the side column.
+
+     Three cards are dropped rather than squeezed. The agent view, the guards
+     and the build are the detail cards -- they reward a viewer who can lean
+     in, which is exactly what someone watching vertically on a phone cannot
+     do. What is left is the stuff that reads at a glance. */
+  body.vert #canvas { width: 1080px; height: 1920px;
+                      grid-template-columns: 1080px;
+                      grid-template-rows: 810px 1110px; }
+  body.vert #game    { grid-column: 1; grid-row: 1; }
+  body.vert #sidewrap{ grid-column: 1; grid-row: 2; }
+  body.vert #side    { width: 540px; height: 555px; transform: scale(2);
+                       gap: 6px; padding: 6px; }
+  /* Same trap the single-card modes fell into: #runc lives in #hudpanel, which
+     is display:none without ?panel=hud, so the resources card silently went
+     missing from this scene too. Show the panel, then drop the three cards
+     that do not belong here. */
+  body.vert #hudpanel { display: contents; }
+  body.vert #viewc, body.vert #guards, body.vert #build { display: none; }
+  body.vert #logc    { flex: 0 0 92px; }
+  body.vert #camhole { height: 190px; }
+
+  /* Single-card mode: each panel as its own small browser source, so they can
+     be placed independently instead of as one fixed column. The card keeps the
+     type it was tuned with and the region is 480 wide. */
+  body.only #canvas { width: 480px; height: auto; display: block; }
+  body.only #game { display: none; }
+  body.only #sidewrap { overflow: visible; }
+  body.only #side { height: auto; padding: 0; }
+  body.only #camhole { display: none; }
+  body.only .card { display: none; }
+  body.only-perf #perf, body.only-view #viewc, body.only-guards #guards,
+  body.only-decisions #feed, body.only-chat #chatc, body.only-run #runc,
+  body.only-build #build, body.only-log #logc { display: block; }
+  /* The quip card hides itself when empty, so only-quip must not force it
+     visible -- an OBS source for it should be blank until the button is
+     pressed, not an empty bordered box. */
+  body.only-quip #quipc[data-has="1"] { display: block; }
+
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--fg);
+         display: inline-block; margin-right: 4px; animation: p 1.6s infinite; }
+  @keyframes p { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
+  body.stale .dot { background: var(--bad); animation: none; }
+</style>
+</head>
+<body>
+<div id="canvas">
+
+<div id="game"><img id="vid" alt=""></div>
+
+<div id="sidewrap"><div id="side">
+  <div class="card" id="perf">
+    <div class="hd"><span><span class="dot"></span>Inference</span><b id="model">—</b></div>
+    <div class="big"><span class="v" id="ms">—</span><span class="u">ms</span>
+      <span class="u" style="margin-left:auto" id="dpm"></span></div>
+    <div class="phase" id="phase"></div>
+    <svg class="spark" id="spark" preserveAspectRatio="none"></svg>
+    <div class="grid">
+      <div><div class="k">P50</div><div class="n" id="p50">—</div></div>
+      <div><div class="k">P95</div><div class="n" id="p95">—</div></div>
+      <div><div class="k">P99</div><div class="n" id="p99">—</div></div>
+      <div><div class="k">CTX</div><div class="n" id="ctx">—</div></div>
+      <div><div class="k">PP TOK/S</div><div class="n" id="pptps">—</div></div>
+      <div><div class="k">GEN TOK/S</div><div class="n" id="tgtps">—</div></div>
+      <div><div class="k">CACHE</div><div class="n" id="cache">—</div></div>
+      <div><div class="k" id="lastk">DRAFT ACC</div><div class="n" id="draft">—</div></div>
+    </div>
+  </div>
+
+  <!-- What only the harness knows. The game's own HUD is on screen already,
+       so this is the agent's fogged map, the guards it reasons over, and the
+       literal string the model emitted. -->
+  <div id="agentpanel">
+    <div class="card" id="viewc">
+      <div class="hd"><span>Agent view</span><span id="mapped"></span></div>
+      <pre class="fov" id="fov"></pre>
+    </div>
+    <div class="card" id="guards">
+      <div class="hd"><span>Guards</span><span id="script"></span></div>
+      <div id="chips" class="chips"></div>
+      <div id="dossier" class="dossier"></div>
+    </div>
+  </div>
+
+  <div id="hudpanel">
+  <div class="card" id="runc">
+    <div class="hd"><span>Run</span><b id="loc">—</b></div>
+    <div id="bars"></div>
+  </div>
+
+  <div class="card" id="build" style="overflow:hidden">
+    <div class="hd"><span>Build</span><span id="inv"></span></div>
+    <div class="parts" id="parts"></div>
+    <div class="hd" style="margin-top:6px"><span>Contacts</span></div>
+    <div id="hostiles" style="font-size:11px; color:var(--hot)"></div>
+  </div>
+
+  </div><!-- /hudpanel -->
+
+  <div class="card" id="feed">
+    <div class="hd"><span>Decisions</span><span id="turn"></span></div>
+    <div id="raw"></div>
+    <div id="rows"></div>
+  </div>
+
+  <div class="card" id="logc">
+    <div class="hd"><span>Log</span></div>
+    <div id="log"></div>
+  </div>
+
+  <!-- Whatever the model last said out loud. Hidden until there is something
+       to show, so an empty card never sits on the scene. -->
+  <div class="card" id="quipc" style="display:none">
+    <div class="hd"><span>The model says</span></div>
+    <div id="quip"></div>
+  </div>
+
+  <div class="card" id="chatc">
+    <div class="hd"><span>Chat &rarr; model</span><span id="chatmeta"></span></div>
+    <div id="chat"></div>
+  </div>
+
+  <!-- Bottom corner, and last in the column so the panels stack above it.
+       320 authored x 1.5 = a 480x480 square in the finished canvas. -->
+  <div id="camhole"></div>
+</div></div>
+
+</div><!-- /canvas -->
+
+<script>
+const q  = new URLSearchParams(location.search);
+const $  = id => document.getElementById(id);
+const ms = v => v == null ? "—" : Math.round(v);
+const esc = t => String(t).replace(/[<>&]/g, c => ({ "<":"&lt;", ">":"&gt;", "&":"&amp;" }[c]));
+
+// A cam flag in the URL pins this source to one layout. With no flag the page
+// follows the shared /scene switch instead, which is what lets a single
+// Browser Source live in several OBS scenes and change layout without ever
+// reloading -- no second video stream, no blink on switch.
+const pinnedCam = q.has("cam") ? q.get("cam") === "1" : null;
+// ?only=perf|view|guards|decisions|chat|run|build|log renders that card alone,
+// as its own OBS region. ?chat=1 adds the chat card to the full column.
+// ?layout=vertical (or ?v=1) for the 1080x1920 scene.
+const vert = q.get("layout") === "vertical" || q.get("v") === "1";
+if (vert) document.body.classList.add("vert");
+const only = q.get("only");
+if (only) document.body.classList.add("only", "only-" + only);
+if (q.get("chat") === "1") document.body.classList.add("showchat");
+if (pinnedCam === true) document.body.classList.add("cam");
+if (q.get("panel") === "hud") document.body.classList.add("hud");
+if (q.get("video") === "0") document.body.classList.add("novideo");
+else $("vid").src = "video.mjpg";
+
+function spark(vals) {
+  const el = $("spark");
+  if (!vals || vals.length < 2) { el.innerHTML = ""; return; }
+  const w = el.clientWidth || 300, h = 30, max = Math.max(...vals) || 1;
+  const step = w / (vals.length - 1), y = v => h - 1.5 - (v / max) * (h - 4);
+  const pts = vals.map((v, i) => `${(i*step).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  el.innerHTML = `<polyline fill="rgba(127,224,160,.13)" stroke="none" points="0,${h} ${pts} ${w},${h}"/>`
+               + `<polyline fill="none" stroke="var(--fg)" stroke-width="1.4" points="${pts}"/>`;
+}
+
+function bar(label, cur, max, colour) {
+  const pct = max ? Math.max(0, Math.min(100, cur / max * 100)) : 0;
+  return `<div class="bar"><span class="t">${label}</span>
+    <span class="track"><span class="fill" style="width:${pct}%;background:${colour}"></span></span>
+    <span class="num">${cur}<small style="color:var(--dim)">/${max}</small></span></div>`;
+}
+
+function render(s) {
+  if (s.status !== "playing") return;
+  const p = s.perf || {};
+  $("model").textContent = p.model || "—";
+  $("ms").textContent    = ms(p.ms_last);
+  $("dpm").textContent   = s.run.dpm ? s.run.dpm.toFixed(1) + " dec/min" : "";
+  $("p50").textContent   = ms(p.ms_p50);
+  $("p95").textContent   = ms(p.ms_p95);
+  $("p99").textContent   = ms(p.ms_p99);
+  $("pptps").innerHTML   = (p.pp_tps || 0).toFixed(0) + ` <small>${p.pp_n || 0}t</small>`;
+  $("tgtps").innerHTML   = (p.tg_tps || 0).toFixed(0) + ` <small>${p.tg_n || 0}t</small>`;
+  $("cache").textContent = ((p.cache_hit || 0) * 100).toFixed(0) + "%";
+  if (p.has_draft) {
+    $("lastk").textContent = "DRAFT ACC";
+    $("draft").textContent = ((p.draft_ok || 0) * 100).toFixed(0) + "%";
+  } else {
+    $("lastk").textContent = "SPREAD";
+    $("draft").textContent = ms(p.ms_min) + "–" + ms(p.ms_max);
+  }
+  // Context used against the window the server enforces. The observation grows
+  // as the agent maps the floor, so this is the number that creeps over a run.
+  const k = n => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k" : String(n);
+  $("ctx").innerHTML = p.ctx_max
+    ? `${k(p.ctx_n || 0)}<small>/${k(p.ctx_max)}</small>`
+    : `${k(p.ctx_n || 0)}<small> tok</small>`;
+
+  // Where the milliseconds went. `wait` is everything outside the two compute
+  // phases -- queueing behind another request, a model swap, the tunnel.
+  const tot = Math.max(p.ms_last || 0, 1);
+  const pp = Math.min(100, (p.pp_ms || 0) / tot * 100);
+  const tg = Math.min(100 - pp, (p.tg_ms || 0) / tot * 100);
+  const wait = Math.max(0, 100 - pp - tg);
+  $("phase").innerHTML =
+      `<div class="pp"   style="width:${pp}%">${pp   > 16 ? "pp "  + Math.round(p.pp_ms) : ""}</div>`
+    + `<div class="tg"   style="width:${tg}%">${tg   > 16 ? "gen " + Math.round(p.tg_ms) : ""}</div>`
+    + `<div class="idle" style="width:${wait}%">${wait > 18 ? "wait" : ""}</div>`;
+  spark(p.spark);
+
+  $("loc").textContent  = `${s.run.depth} ${(s.run.map || "").replace("MAP_", "")}`;
+  $("turn").textContent = `t${s.run.turn} · ${s.run.steps} steps · ${s.run.decisions} dec`;
+  const r = s.res || {};
+  $("bars").innerHTML =
+      bar("CORE",   r.core_integrity?.[0] ?? 0, r.core_integrity?.[1] ?? 0, "var(--fg)")
+    + bar("ENERGY", r.energy?.[0] ?? 0,         r.energy?.[1] ?? 0,         "var(--cy)")
+    + bar("MATTER", r.matter?.[0] ?? 0,         r.matter?.[1] ?? 0,         "var(--mag)")
+    + `<div class="bar"><span class="t">HEAT</span>
+        <span class="track"><span class="fill" style="width:${Math.min(100, s.heat/4)}%;background:var(--warn)"></span></span>
+        <span class="num">${s.heat}</span></div>`;
+
+  $("parts").innerHTML = ["power","propulsion","utility","weapon"].map(k => {
+    const got = s.parts[k] || [], n = s.slots[k] || 0;
+    const body = got.length ? got.join(", ") : `<span class="empty">empty</span>`;
+    return `<div><span class="s">${k.slice(0,4).toUpperCase()} ${got.length}/${n}</span> ${esc(body)}</div>`;
+  }).join("").replace(/&lt;span class=&quot;empty&quot;&gt;empty&lt;\/span&gt;/g,
+                      '<span class="empty">empty</span>');
+  $("inv").textContent = `${(s.inventory || []).length} carried`;
+  $("hostiles").textContent = (s.hostiles || []).map(h => `${h[2]} ${h[0]}${h[1]}`).join("   ") || "none in view";
+
+  // The agent's own map: what it has actually seen, fog and all. This is the
+  // one view that exists nowhere on screen -- the game draws what is visible
+  // now, this is what the model remembers.
+  const cls = ch => ch === "@" ? "me" : ch === "?" ? "un" : ch === "#" ? "wa"
+            : "<>".includes(ch) ? "ex"
+            : /[a-zA-Z]/.test(ch) ? "ho"
+            : ' .'.includes(ch) ? "" : "it";
+  $("fov").innerHTML = (s.map || []).map(row =>
+    [...row].map(ch => { const c = cls(ch);
+      return c ? `<span class="${c}">${esc(ch)}</span>` : esc(ch); }).join("")
+  ).join("\n");
+  $("mapped").textContent = `${s.mapped || 0} known · ${s.frontier || 0} frontier`;
+
+  const sit = s.sit || {};
+  const chip = (label, on, bad) =>
+    `<span class="chip ${on ? (bad ? "bad" : "on") : ""}">${label}</span>`;
+  $("chips").innerHTML =
+      chip("ARMED", sit.armed)
+    + chip("UNDER FIRE", sit.under_attack, true)
+    + chip("CAN FIRE", sit.can_fire)
+    + chip("ROUTE TO EXIT", sit.exit_route)
+    + chip("ON EXIT", sit.on_exit)
+    + chip("ON ITEM", sit.on_item)
+    + chip("DOORWAY", sit.doorway_near)
+    + chip("ALL HARMLESS", sit.all_harmless)
+    + chip("EM EDGE", sit.em_edge)
+    + chip(`${sit.hostiles ?? 0} SEEN`, sit.hostiles > 0, true)
+    + (sit.near != null ? chip(`NEAREST ${sit.near}`, sit.near <= 3, true) : "");
+  const chat = s.chat || [];
+  $("chat").innerHTML = chat.length
+    ? chat.map(m => `<div>${esc(m)}</div>`).join("")
+    : `<div style="color:var(--dim)">quiet</div>`;
+  const cs = s.chat_status, pr = s.params || {};
+  $("chatmeta").textContent = cs
+    ? `#${cs.channel} ${cs.connected ? "" : "OFFLINE "}· ${pr.chat_window_min ?? "?"}m`
+    : "not enabled";
+
+  $("dossier").textContent = (sit.dossier || []).length
+    ? "identified: " + sit.dossier.join(", ") : "nothing identified yet";
+  $("script").textContent = s.script || (s.invalid ? `${s.invalid} invalid` : "model");
+  $("raw").textContent = s.raw || "";
+
+  $("rows").innerHTML = (s.recent || []).slice(0, 9).map(d =>
+    `<div class="row"><span class="i">${d.i}</span><span class="a">${esc(d.action)}</span>
+      <span class="r">${esc(d.result)}</span></div>`).join("");
+  $("log").innerHTML = (s.log || []).slice(-6).map(l => `<div>${esc(l)}</div>`).join("");
+}
+
+let lastT = 0;
+async function tick() {
+  try {
+    const s = await (await fetch("state.json", { cache: "no-store" })).json();
+    render(s); lastT = s.t || 0;
+  } catch (e) { /* keep the last frame rather than blanking on stream */ }
+  document.body.classList.toggle("stale", lastT && (Date.now()/1000 - lastT) > 25);
+  try {
+    const qp = await (await fetch("quip.json", { cache: "no-store" })).json();
+    const t = (qp && qp.text) || "";
+    $("quip").textContent = t;
+    $("quipc").dataset.has = t ? "1" : "0";
+    if (!only) $("quipc").style.display = t ? "block" : "none";
+    else $("quipc").style.display = (only === "quip" && t) ? "block" : "";
+  } catch (e) { /* no quip yet */ }
+  if (pinnedCam === null) {
+    try {
+      const sc = await (await fetch("scene", { cache: "no-store" })).json();
+      document.body.classList.toggle("cam", !!sc.cam);
+    } catch (e) { /* leave the layout as it is */ }
+  }
+}
+tick(); setInterval(tick, 500);
+
+function fit() {
+  // In single-card mode the region is 480 wide and as tall as the card needs;
+  // scale on width alone so it fills whatever the browser source is sized to.
+  const k = only ? innerWidth / 480
+          : vert ? Math.min(innerWidth / 1080, innerHeight / 1920)
+                 : Math.min(innerWidth / 1920, innerHeight / 1080);
+  $("canvas").style.transform = `scale(${k})`;
+}
+addEventListener("resize", fit); fit();
+new ResizeObserver(fit).observe(document.documentElement);
+
+// An MJPEG <img> that dies (pod restart, ffmpeg hiccup) stays dead unless it is
+// told to reconnect, and a black rectangle on stream looks like a crash.
+$("vid").addEventListener("error", () => {
+  setTimeout(() => { $("vid").src = "video.mjpg?" + Date.now(); }, 2000);
+});
+</script>
+</body>
+</html>

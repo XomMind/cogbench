@@ -1,0 +1,53 @@
+# Narrow hole in the namespace's `no-egress` policy.
+#
+# NetworkPolicies are additive: `no-egress` selects every pod and permits
+# nothing, so this one grants exactly two flows back and nothing else.
+#
+#   1. cluster DNS, or the pod cannot resolve anything at all
+#   2. outbound TCP 443 and 6697 (Twitch IRC TLS), with every RFC1918 range
+#      and the cluster's own networks carved out
+#
+# The carve-outs are the point. The agent needs to reach an inference endpoint
+# on the internet; the *game* must stay unable to reach the LAN, the node, the
+# registry or any other pod. Egress to 443 only means it cannot even talk to
+# the rest of the cluster on the ports that would matter.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-model-egress
+  namespace: cogbench
+spec:
+  podSelector:
+    matchLabels:
+      app: cogbench
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8          # cluster pods/services and any LAN on 10/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16      # the home LAN, incl. the node and registry
+              - 169.254.0.0/16      # link-local / cloud metadata
+              - 100.64.0.0/10       # CGNAT, which is where Tailscale lives
+      ports:
+        - protocol: TCP
+          port: 443
+        # Twitch IRC over TLS, for reading chat. Read-only and anonymous -- the
+        # client logs in as justinfan<n> with no credentials and cannot post.
+        - protocol: TCP
+          port: 6697

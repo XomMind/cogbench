@@ -1,0 +1,405 @@
+# Cogbench on slacker: the game, a frame grabber, and the stream surface.
+#
+# The build files for the original image were never committed, so this manifest
+# is written against the image that is already in the registry and adds the
+# streaming path as sidecars rather than rebuilding it. Everything the agent
+# needs at runtime lives on the PVC under /data/cogbench, which is why new
+# harness code can be dropped in with `kubectl cp` and does not need a rebuild.
+#
+# Three containers, one pod, because they have to share things that only a pod
+# can share:
+#
+#   cogbench  Xvfb + Wine + COGMIND.exe + statmind. Unchanged except that its
+#             X socket directory is now a shared volume.
+#   video     ffmpeg, grabbing that X display and writing one JPEG over and
+#             over to a tmpfs. It never talks to the network.
+#   overlay   stream.py, serving the overlay page, the agent's state.json, and
+#             an MJPEG feed fanned out from that JPEG.
+#
+# The pod is sealed by the namespace's `no-egress` policy; netpol-model-egress
+# reopens exactly DNS and outbound 443 so the agent can reach an inference
+# endpoint and nothing else. Nothing here can reach the LAN.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cogbench
+  namespace: cogbench
+  labels: { app: cogbench }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }      # one game, one X display; never two
+  selector:
+    matchLabels: { app: cogbench }
+  template:
+    metadata:
+      labels: { app: cogbench }
+    spec:
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: cogbench
+          image: 192.168.1.187:30500/cogbench:20260916-safari
+          # Restores what revisions 1-5 of this deployment already carried.
+          # statmind reads the game's memory from a sibling process, which needs
+          # PTRACE_MODE_ATTACH. Same-uid is not enough under yama
+          # ptrace_scope=1 -- only a parent may attach to a descendant, and the
+          # game is a sibling of the reader, not its child. Dropping this does
+          # not fail loudly: the agent starts and then dies on
+          # `PermissionError: Operation not permitted: /usr/local/bin/statmind`.
+          securityContext:
+            allowPrivilegeEscalation: true
+            capabilities:
+              add: [SYS_PTRACE]
+              drop: [ALL]
+          env:
+            # Unset on purpose: the entrypoint picks a fresh random world for
+            # every new run. Set this to a fixed string to pin the map when a
+            # benchmark run needs to be repeatable.
+            # - { name: COGBENCH_SEED, value: COGBENCH1 }
+            # 4:3 at exactly the size the 1920x1080 canvas gives the game, so
+            # the frame grabber copies pixels rather than resampling them.
+            - { name: COGBENCH_XVFB_SIZE, value: 1440x1080x24 }
+            - { name: COGBENCH_PULSE_DIR, value: /tmp/pulse }
+            # The runner writes the run spec next to the stream state and reads
+            # decision progress back out of it, so it needs the same directory
+            # the agent publishes into.
+            - { name: COGBENCH_STREAM_DIR, value: /data/stream }
+            # The agent runs in this container, so the endpoint it talks to
+            # comes from the same Secret the overlay's /models proxy uses --
+            # otherwise every `exec ... agent.py` has to carry the API key on
+            # its command line, where it lands in shell history and ps output.
+            - name: COGBENCH_URL
+              valueFrom: { secretKeyRef: { name: cogbench-endpoint, key: url } }
+            - name: COGBENCH_API_KEY
+              valueFrom: { secretKeyRef: { name: cogbench-endpoint, key: api_key } }
+          ports:
+            - { containerPort: 8765, name: shell, protocol: TCP }
+          resources:
+            # No limits anywhere in this pod, by choice. Every ceiling here
+            # cost more than it saved: 2Gi OOMKilled the game mid-run (exit
+            # 137) and looked exactly like "the bot died", and 2 CPU throttled
+            # x264 into emitting a stream whose video would not decode. The
+            # node has ~98Gi and this is the only workload that matters on it,
+            # so requests still place the pod sensibly and nothing caps it.
+            #
+            # The tradeoff is real: without a memory limit a runaway here can
+            # pressure the node rather than dying alone. Worth revisiting if
+            # anything else lands on this box.
+            requests: { cpu: 500m, memory: 1Gi }
+          volumeMounts:
+            - { name: data,  mountPath: /data }
+            - { name: xsock, mountPath: /tmp/.X11-unix }
+            - { name: pulse, mountPath: /tmp/pulse }
+
+        - name: video
+          image: 192.168.1.187:30500/cogbench:20260916-safari
+          # Wrapped in a retry loop rather than run bare. Loop mode restarts the
+          # game container after every episode, which takes Xvfb with it, and a
+          # bare ffmpeg just exits with "Cannot open display :99" and hands the
+          # problem to kubelet -- whose CrashLoopBackOff reaches 40s and more,
+          # so the overlay's video stays black long after the game is back.
+          # Retrying in here costs a second instead of a minute.
+          command: ["sh", "-c"]
+          # Neither sidecar needs anything privileged; only the game container
+          # does. This also clears the namespace's PodSecurity "restricted"
+          # warning for these two.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          # x11grab on the shared socket. The output is a single file rewritten
+          # in place: -update 1 keeps overwriting it and -atomic_writing 1 makes
+          # each rewrite a rename, so a reader can never catch a torn JPEG.
+          # No scale filter at all: the X display is already the size the
+          # canvas wants the game to be, so every glyph reaches the stream as
+          # the pixels Cogmind drew. Any resampling here costs legibility and
+          # buys nothing.
+          args:
+            - |
+              while true; do
+                ffmpeg -loglevel warning \
+                  -f x11grab -draw_mouse 0 \
+                    -framerate 15 -video_size 1440x1080 -i :99 \
+                  -q:v 6 -f image2 -atomic_writing 1 -update 1 -y \
+                  /run/frames/frame.jpg || true
+                sleep 1
+              done
+          resources:
+            requests: { cpu: 200m, memory: 128Mi }
+          volumeMounts:
+            - { name: xsock,  mountPath: /tmp/.X11-unix, readOnly: true }
+            - { name: frames, mountPath: /run/frames }
+
+        # The game video as its own OBS source, separate from the overlay's
+        # MJPEG. MJPEG is fine for a Browser Source but it is JPEG at 15fps,
+        # and JPEG is the wrong codec for a screen full of one-pixel-stem
+        # glyphs -- the ringing shows up on every letter.
+        #
+        # So: lossless H.264 in MPEG-TS over HTTP, which is what OBS's Media
+        # Source ingests best. Lossless matters less for bitrate than it
+        # sounds, because a roguelike screen is almost entirely static between
+        # frames and x264 spends nearly nothing on the unchanged regions.
+        #
+        # -draw_mouse 0 on the grab: x11grab composites the X pointer into the
+        # frame by default, and nothing here uses a mouse -- the agent drives
+        # the game through LuigiAI -- so the only thing the cursor ever did was
+        # park itself on the stream wherever it was last left.
+        #
+        # 4:4:4 would be the right answer on quality alone -- 4:2:0 keeps one
+        # colour sample per 2x2 block and Cogmind is saturated single-pixel
+        # coloured text -- but it is not decodable where it has to be. Both
+        # yuv444p and x264's lossless mode (-qp 0) encode as High 4:4:4
+        # Predictive, and OBS's Media Source plays the audio from such a stream
+        # while showing no picture at all, which is a confusing failure because
+        # it looks like a video problem and sounds like a working stream.
+        #
+        # So the default is plain High profile 4:2:0 at a low CRF: visually
+        # very close on a mostly static screen, and it actually appears.
+        # COGBENCH_RAW_PIXFMT=yuv444p with COGBENCH_RAW_PROFILE=high444, and
+        # COGBENCH_RAW_CRF=0 for true lossless, restores it for players that
+        # cope -- ffmpeg and VLC both do. Audio is unaffected either way and
+        # stays lossless FLAC.
+        - name: raw
+          image: 192.168.1.187:30500/cogbench:20260916-safari
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          command: ["sh", "-c"]
+          # Same one-client-then-exit behaviour as any ffmpeg http muxer, so
+          # the same loop puts it straight back on the socket.
+          #
+          # Audio rides along in the same stream rather than in a second one:
+          # a separate feed is a second thing to add in OBS and a sync problem
+          # to solve by hand forever. FLAC because the ask was lossless and it
+          # is -- the null sink hands ffmpeg 48kHz s16 stereo and FLAC stores
+          # those samples exactly, at roughly half the size of the PCM. MPEG-TS
+          # in Matroska, not MPEG-TS: TS has no real FLAC mapping and ffmpeg
+          # falls back to "muxed as a private data stream and may not be
+          # recognized upon reading", which is a silent stream in OBS. Matroska
+          # carries both codecs properly and OBS's Media Source reads it.
+          #
+          # -thread_queue_size 512 on both inputs: the defaults are eight
+          # packets, and x11grab and pulse each block the other while the
+          # encoder is busy, which shows up as dropped frames and drifting
+          # audio.
+          #
+          # aresample async: two independent live sources have no shared clock,
+          # and the pulse monitor delivers packets whose timestamps occasionally
+          # step backwards -- the muxer logged a steady stream of "Non-monotonic
+          # DTS" and clamped each one, which is silently discarded audio time
+          # and shows up as drift over a long stream. This stretches or squeezes
+          # the audio by up to a second to track the video clock instead of
+          # throwing samples away, which is the one correction that stays
+          # inaudible on a soundtrack of beeps and ambience.
+          #
+          # -g 15 keeps an IDR every quarter second at 60fps: a Media Source
+          # that connects mid-stream shows nothing until the next keyframe, and
+          # a long wait on every scene switch looks like a hang.
+          args:
+            - |
+              while true; do
+                ffmpeg -loglevel warning \
+                  -thread_queue_size 512 \
+                  -f x11grab -draw_mouse 0 \
+                    -framerate "${COGBENCH_RAW_FPS:-60}" \
+                    -video_size 1440x1080 -i :99 \
+                  -thread_queue_size 512 \
+                  -f pulse -i cogbench.monitor \
+                  -c:v libx264 -preset ultrafast -tune zerolatency \
+                    -crf "${COGBENCH_RAW_CRF:-12}" \
+                    -pix_fmt "${COGBENCH_RAW_PIXFMT:-yuv420p}" \
+                    -profile:v "${COGBENCH_RAW_PROFILE:-high}" \
+                    -g 15 -bf 0 \
+                  -af "aresample=async=1000:min_hard_comp=0.100:first_pts=0" \
+                  -c:a flac -ar 48000 -ac 2 \
+                  -f matroska -live 1 -flush_packets 1 \
+                  -listen 1 http://0.0.0.0:8091/stream.mkv || true
+                sleep 1
+              done
+          # 60fps. Xvfb has no vsync and Cogmind only redraws when something
+          # changes, so a good share of these are duplicate frames -- but they
+          # cost x264 almost nothing (a skipped macroblock is a few bits) and
+          # they are what makes cursor movement and animations land on OBS's
+          # own 60fps timeline without judder. Measured ~5 Mbit/s at 30fps
+          # lossless, so the bandwidth was never the constraint.
+          env:
+            - { name: COGBENCH_RAW_FPS, value: "60" }
+            - { name: PULSE_SERVER, value: unix:/tmp/pulse/native }
+          ports:
+            - { containerPort: 8091, name: raw, protocol: TCP }
+          resources:
+            requests: { cpu: 300m, memory: 128Mi }
+            # Lossless 4:4:4 at 30fps is the most expensive thing in the pod;
+            # ultrafast keeps it to roughly a core on a static screen, and the
+            # ceiling is there for the frames where the whole map redraws.
+          volumeMounts:
+            - { name: xsock, mountPath: /tmp/.X11-unix, readOnly: true }
+            - { name: pulse, mountPath: /tmp/pulse }
+
+        # A second, deliberately cheap feed beside the lossless one.
+        #
+        # The lossless 60fps stream is ~10 Mbit/s of Matroska, which is fine on
+        # wired LAN and not fine over spotty WiFi -- and Matroska is a fussy
+        # container for live ingest because it has no duration and no index.
+        # MPEG-TS is what every live tool expects and AAC is what every decoder
+        # has. 60fps costs almost nothing here: the screen is static between
+        # frames, so the duplicates compress to a few bits each, and measured
+        # at CRF 16 the whole thing still fits in about a megabit. The frame
+        # rate was never what made this feed cheap -- the codec and the content
+        # are. keyint stays at 60, so a client joining mid-stream waits at most
+        # a second for a keyframe instead of two.
+        #
+        # repeat-headers=1 is not optional here. Without it x264 emits SPS/PPS
+        # once at the start, a client that connects later gets a video stream
+        # with no parameter sets, and ffprobe reports pix_fmt "none" with no
+        # resolution while the audio plays perfectly -- exactly the shape of
+        # "the audio works but there is no picture". MPEG-TS expects the
+        # headers repeated in band before each keyframe, and this is what does
+        # it, so joining mid-stream works.
+        #
+        # Native 1440x1080, no downscale: resampling a character grid is what
+        # turns crisp glyphs to mush, and the bitrate is already handled by the
+        # frame rate and CRF rather than by throwing away pixels.
+        #
+        # CRF 16 rather than 23, and three x264 knobs aimed at text. psy-rd
+        # trades fidelity for perceived detail, which on photographic content
+        # is a win and on one-pixel glyph stems just moves them about; aq-mode
+        # spends bits on flat areas, and this screen is mostly flat black;
+        # deblock -2,-2 stops the loop filter rounding the corners off letters.
+        # Together they cost bitrate and buy sharpness, which is the right
+        # trade for a screen that is entirely text.
+        #
+        # Both run at once so the choice is a URL in OBS rather than a redeploy.
+        - name: lite
+          image: 192.168.1.187:30500/cogbench:20260916-safari
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          command: ["sh", "-c"]
+          args:
+            - |
+              while true; do
+                # Read the quality each time round the loop, so tuning it is
+                # writing a number into /data/lite-crf and reconnecting the
+                # source -- not a redeploy that restarts the game and the run.
+                crf=$(cat /data/lite-crf 2>/dev/null || echo "${COGBENCH_LITE_CRF:-16}")
+                ffmpeg -loglevel warning \
+                  -thread_queue_size 512 \
+                  -f x11grab -draw_mouse 0 \
+                    -framerate "${COGBENCH_LITE_FPS:-60}" \
+                    -video_size 1440x1080 -i :99 \
+                  -thread_queue_size 512 \
+                  -f pulse -i cogbench.monitor \
+                  -c:v libx264 -preset veryfast -tune zerolatency \
+                    -crf "$crf" -pix_fmt yuv420p \
+                    -profile:v high -bf 0 \
+                    -x264-params "keyint=60:scenecut=0:repeat-headers=1:psy-rd=0:aq-mode=0:deblock=-2,-2" \
+                  -af "aresample=async=1000:min_hard_comp=0.100:first_pts=0" \
+                  -c:a aac -b:a 160k -ar 48000 -ac 2 \
+                  -f mpegts -muxdelay 0 -flush_packets 1 \
+                  -listen 1 http://0.0.0.0:8092/stream.ts || true
+                sleep 1
+              done
+          env:
+            - { name: PULSE_SERVER, value: unix:/tmp/pulse/native }
+          ports:
+            - { containerPort: 8092, name: lite, protocol: TCP }
+          resources:
+            # Uncapped. When this was 2 cores the symptom was not slowness:
+            # x264 bursts past the ceiling inside each scheduling period, the
+            # cgroup throttled it (288 times, 54s measured) and the encoder
+            # stalled mid-frame, emitting video with no usable parameter sets --
+            # audio fine, picture undecodable.
+            requests: { cpu: 300m, memory: 128Mi }
+          volumeMounts:
+            - { name: xsock, mountPath: /tmp/.X11-unix, readOnly: true }
+            - { name: pulse, mountPath: /tmp/pulse }
+            - { name: data,  mountPath: /data }
+
+        # The watch page: fragmented MP4 over one HTTP response, appended to a
+        # MediaSource in the browser. Unlike the ffmpeg HTTP muxers beside it
+        # this fans out to any number of viewers, because the Python process
+        # owns the pipe and every client is just another consumer of it.
+        #
+        # It runs its own ffmpeg rather than sharing one of the others: the
+        # muxers each own their output socket and cannot be tee'd without a
+        # remux, and a third x11grab costs less than the machinery to avoid it.
+        - name: web
+          image: 192.168.1.187:30500/cogbench:20260916-safari
+          command: ["python3", "/opt/cogbench/webstream.py", "serve",
+                    "--port", "8094"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          env:
+            - { name: DISPLAY, value: ":99" }
+            - { name: PULSE_SERVER, value: unix:/tmp/pulse/native }
+            - { name: COGBENCH_WEB_FPS, value: "60" }
+            - { name: COGBENCH_WEB_CRF, value: "18" }
+          ports:
+            - { containerPort: 8094, name: web, protocol: TCP }
+          resources:
+            requests: { cpu: 300m, memory: 192Mi }
+          volumeMounts:
+            - { name: xsock, mountPath: /tmp/.X11-unix, readOnly: true }
+            - { name: pulse, mountPath: /tmp/pulse }
+
+        - name: overlay
+          image: 192.168.1.187:30500/cogbench:20260916-safari
+          command: ["python3", "/opt/cogbench/stream.py", "serve", "--port", "8080"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          env:
+            - { name: COGBENCH_FRAME, value: /run/frames/frame.jpg }
+            # The page is baked into the read-only image; the state file is
+            # written by whichever agent is playing, so it lives on the PVC.
+            - { name: COGBENCH_STREAM_DIR, value: /data/stream }
+            # For the /models proxy, so the control page can list and switch
+            # models without the API key ever reaching a browser.
+            - name: COGBENCH_URL
+              valueFrom: { secretKeyRef: { name: cogbench-endpoint, key: url } }
+            - name: COGBENCH_API_KEY
+              valueFrom: { secretKeyRef: { name: cogbench-endpoint, key: api_key } }
+          ports:
+            - { containerPort: 8080, name: http, protocol: TCP }
+          readinessProbe:
+            httpGet: { path: /overlay.html, port: 8080 }
+            initialDelaySeconds: 3
+          resources:
+            requests: { cpu: 100m, memory: 64Mi }
+          volumeMounts:
+            - { name: data,   mountPath: /data }
+            - { name: frames, mountPath: /run/frames, readOnly: true }
+
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: cogbench-data }
+        - name: xsock
+          emptyDir: {}
+        - name: frames
+          emptyDir: { medium: Memory, sizeLimit: 64Mi }
+        - name: pulse
+          emptyDir: {}
+---
+# OBS reaches this over Tailscale as slacker:31720. One origin serves the
+# overlay page, the state JSON and the video, so there is a single Browser
+# Source to add and no cross-origin anything.
+apiVersion: v1
+kind: Service
+metadata:
+  name: cogbench-stream
+  namespace: cogbench
+  labels: { app: cogbench }
+spec:
+  type: NodePort
+  selector: { app: cogbench }
+  ports:
+    - { name: http,  port: 8080, targetPort: 8080, nodePort: 31720 }
+    - { name: raw,   port: 8091, targetPort: 8091, nodePort: 31722 }
+    - { name: lite,  port: 8092, targetPort: 8092, nodePort: 31723 }
+    - { name: web,   port: 8094, targetPort: 8094, nodePort: 31724 }

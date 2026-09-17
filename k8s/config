@@ -1,0 +1,6 @@
+COGBENCH_IMAGE=192.168.1.187:30500/cogbench:20260904-slacker1
+COGBENCH_NODE=slacker
+COGBENCH_BUILDER=slacker
+COGBENCH_GAME_SOURCE=/Applications/Cogmind.app/Contents/SharedSupport/prefix/drive_c/COGMIND\ \(Beta\ 17.1\)
+COGBENCH_INSECURE_REGISTRY=1
+COGBENCH_STORAGE_CLASS=standard

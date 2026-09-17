@@ -115,6 +115,13 @@ class Bot:
         if not goals:
             return None
         blocked = set(self.blocked) if use_blacklist else set()
+        # The hard set is never relaxed away. The soft blacklist exists so the
+        # caller can say "prefer not to go through here", and the last-resort
+        # pass drops it deliberately -- but a cell that has refused a move many
+        # times over is not a preference, it is a wall the map is lying about,
+        # and relaxing it just re-attempts the same impossible step forever.
+        # That is exactly how a run wedged on "explore: blocked at (52,39)".
+        blocked |= getattr(self, "hard", set())
         blocked.discard(start)
         if avoid_entities:
             blocked |= {p for p in self.entities if p != start}

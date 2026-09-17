@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cogbench</title>
+<link rel="stylesheet" href="https://cogmind-cdn.plasticheart.info/cogfont.css">
+<!--
+  A watch page, for opening in Safari on the same network as the game.
+
+  The video arrives as a single never-ending fragmented MP4 over HTTP and is
+  appended to a MediaSource. That is the lowest-latency route into Safari that
+  does not involve WebRTC, and it needs no signalling, no UDP, no ICE and no
+  second server -- which on a LAN is the whole of what WebRTC would have bought.
+
+  The part that actually keeps latency down is not the transport, it is the
+  live-edge tracking below: a MediaSource left alone will happily play a second
+  behind the buffer's leading edge forever, and the drift only grows.
+-->
+<style>
+  :root {
+    --bg:#05100a; --line:#1c3a22; --dim:#4e7f5c; --fg:#7fe0a0; --hot:#cfffe0;
+    --bad:#ff6b6b; --cy:#63d8ff;
+    --mono:cogmind-cog,"SF Mono",Menlo,monospace;
+    --caps:cogmind-smallcaps,var(--mono);
+  }
+  * { box-sizing:border-box; margin:0; }
+  html,body { height:100%; background:#000; color:var(--fg);
+              font-family:var(--mono); overflow:hidden; }
+  #wrap { position:fixed; inset:0; display:grid; place-items:center; }
+  video { width:100%; height:100%; object-fit:contain; background:#000;
+          display:block; }
+
+  /* Chrome that fades out of the way. Anything permanently on screen is
+     something you stop seeing, and this page is mostly for watching. */
+  #bar { position:fixed; left:0; right:0; bottom:0; padding:10px 14px;
+         display:flex; gap:14px; align-items:center; flex-wrap:wrap;
+         background:linear-gradient(transparent,rgba(3,10,6,.92));
+         font-size:11px; letter-spacing:.04em;
+         transition:opacity .35s; }
+  body.idle #bar { opacity:0; pointer-events:none; }
+  .k { font-family:var(--caps); color:var(--dim); letter-spacing:.12em;
+       font-size:9.5px; }
+  .v { color:var(--hot); font-variant-numeric:tabular-nums; }
+  button { font-family:var(--mono); font-size:11px; padding:6px 11px;
+           background:#0d1f14; color:var(--fg); border:1px solid var(--line);
+           border-radius:3px; cursor:pointer; }
+  button:hover { border-color:var(--fg); }
+  button.on { background:var(--fg); color:#04140a; font-weight:700; }
+  #msg { position:fixed; inset:0; display:grid; place-items:center;
+         text-align:center; font-size:13px; color:var(--dim);
+         background:#05100a; z-index:5; padding:24px; line-height:1.6; }
+  #msg b { color:var(--fg); display:block; font-size:15px; margin-bottom:8px;
+           font-family:var(--caps); letter-spacing:.14em; }
+  #msg.hide { display:none; }
+  #hud { position:fixed; top:0; right:0; padding:10px 14px; text-align:right;
+         font-size:11px; line-height:1.55; text-shadow:0 0 6px #000;
+         transition:opacity .35s; }
+  body.idle #hud { opacity:.25; }
+  #hud.off { display:none; }
+  #hud .n { color:var(--hot); }
+  #hud .d { color:var(--dim); }
+</style>
+</head>
+<body class="idle">
+
+<div id="wrap"><video id="v" playsinline muted></video></div>
+
+<div id="hud"></div>
+
+<div id="msg"><div><b>Cogbench</b><span id="msgt">connecting…</span></div></div>
+
+<div id="bar">
+  <button id="sound">Sound on</button>
+  <button id="sync">Resync</button>
+  <button id="hudbtn" class="on">HUD</button>
+  <button id="full">Fullscreen</button>
+  <span><span class="k">LATENCY</span> <span class="v" id="lat">—</span></span>
+  <span><span class="k">BUFFER</span> <span class="v" id="buf">—</span></span>
+  <span><span class="k">DROPPED</span> <span class="v" id="drop">—</span></span>
+  <span><span class="k">FPS</span> <span class="v" id="fps">—</span></span>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const v = $("v");
+
+// Plain MediaSource first. Safari 17.4+ on the desktop exposes BOTH this and
+// ManagedMediaSource, and the managed one refuses to attach unless the element
+// has disableRemotePlayback set -- it throws inside addSourceBuffer, so
+// sourceopen never fires and the page sits on "connecting" forever with no
+// error anywhere. Preferring the plain one avoids the trap on the desktop, and
+// iOS (which has only the managed one) gets the flag set below.
+const MS = window.MediaSource || window.ManagedMediaSource;
+const CODECS = [
+  'video/mp4; codecs="avc1.640028,mp4a.40.2"',
+  'video/mp4; codecs="avc1.4d4028,mp4a.40.2"',
+  'video/mp4; codecs="avc1.42e028,mp4a.40.2"',
+];
+
+function fail(text) {
+  $("msg").classList.remove("hide");
+  $("msgt").innerHTML = text;
+}
+
+if (!MS) {
+  fail("This browser has no Media Source support.<br>Safari 17+, or any recent Chrome or Firefox.");
+} else {
+  start();
+}
+
+// How far behind the leading edge we aim to sit. Below roughly a fragment's
+// worth the buffer runs dry on any hiccup and the video stalls, which looks far
+// worse than a fifth of a second of delay.
+const TARGET = 0.35;
+let sb = null, queue = [], ended = false;
+
+function start() {
+  const mime = CODECS.find(c => MS.isTypeSupported(c)) || CODECS[0];
+  // Required by ManagedMediaSource, ignored by everything else.
+  try { v.disableRemotePlayback = true; } catch (e) { /* older browsers */ }
+  const ms = new MS();
+  v.src = URL.createObjectURL(ms);
+  ms.addEventListener("sourceopen", () => {
+    URL.revokeObjectURL(v.src);
+    try {
+      sb = ms.addSourceBuffer(mime);
+    } catch (e) {
+      return fail("This browser refused the stream format.<br>" + e.message);
+    }
+    sb.mode = "sequence";
+    sb.addEventListener("updateend", pump);
+    sb.addEventListener("error", () => fail("The video buffer rejected the stream."));
+    read();
+  }, { once: true });
+  // Nothing has happened after this long, so say something useful instead of
+  // leaving "connecting" on screen. Silence here always meant a MediaSource
+  // that never opened, which is invisible in the console.
+  setTimeout(() => {
+    if (!sb) fail("The video source never opened.<br>"
+                  + "Safari 17+, Chrome or Firefox should all work — "
+                  + "please report what this says.");
+  }, 6000);
+}
+
+function pump() {
+  if (!sb || sb.updating) return;
+  if (queue.length) {
+    try { sb.appendBuffer(queue.shift()); } catch (e) { recover(e); }
+    return;
+  }
+  // Keep only a few seconds behind us. Without this the buffer grows for the
+  // whole session, and on a long stream Safari eventually gives up entirely.
+  try {
+    const b = sb.buffered;
+    if (b.length && v.currentTime - b.start(0) > 12) {
+      sb.remove(b.start(0), v.currentTime - 6);
+    }
+  } catch (e) { /* removal is best effort */ }
+}
+
+function recover(e) {
+  // QuotaExceeded is the common one: drop what is behind us and carry on
+  // rather than tearing the whole player down.
+  try {
+    const b = sb.buffered;
+    if (b.length) sb.remove(b.start(0), Math.max(b.start(0), v.currentTime - 2));
+  } catch (_) { fail("Playback failed: " + e.message); }
+}
+
+async function read() {
+  let r;
+  try {
+    r = await fetch("live.mp4", { cache: "no-store" });
+    if (!r.ok) throw new Error("server said " + r.status);
+  } catch (e) {
+    fail("Cannot reach the stream.<br>" + e.message + "<br>Retrying…");
+    return setTimeout(read, 2000);
+  }
+  $("msg").classList.add("hide");
+  const reader = r.body.getReader();
+  for (;;) {
+    let out;
+    try { out = await reader.read(); } catch (e) { break; }
+    if (out.done) break;
+    queue.push(out.value);
+    pump();
+  }
+  // The stream ended, which on this server means ffmpeg restarted. Start over
+  // rather than sitting on a frozen frame.
+  if (!ended) { fail("Stream dropped, reconnecting…"); setTimeout(() => location.reload(), 1500); }
+}
+
+// -- live edge -------------------------------------------------------------
+// The reason this page is low latency. Appending fragments as they arrive does
+// not make the element play them promptly: after any stall it keeps the gap it
+// fell behind by. So nudge: seek when far behind, and speed up very slightly
+// when merely drifting, which is inaudible and unwatchable-free.
+function edge() {
+  if (!sb || !sb.buffered.length) return;
+  const end = sb.buffered.end(sb.buffered.length - 1);
+  const behind = end - v.currentTime;
+  if (behind > 3) {
+    v.currentTime = end - TARGET;          // a real stall: jump
+    v.playbackRate = 1;
+  } else if (behind > TARGET + 0.25) {
+    v.playbackRate = 1.05;                 // drifting: catch up gently
+  } else {
+    v.playbackRate = 1;
+  }
+  $("lat").textContent = behind.toFixed(2) + "s";
+  $("buf").textContent = (end - (sb.buffered.start(0) || 0)).toFixed(1) + "s";
+  const q = v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality() : null;
+  if (q) {
+    $("drop").textContent = q.droppedVideoFrames;
+    const now = performance.now();
+    if (edge.t) {
+      const d = (q.totalVideoFrames - edge.f) / ((now - edge.t) / 1000);
+      if (isFinite(d)) $("fps").textContent = d.toFixed(0);
+    }
+    edge.t = now; edge.f = q.totalVideoFrames;
+  }
+}
+setInterval(edge, 1000);
+
+v.addEventListener("canplay", () => v.play().catch(() => {}));
+v.addEventListener("stalled", () => { v.play().catch(() => {}); });
+
+// -- controls --------------------------------------------------------------
+// Safari will not autoplay with sound, so the page starts muted and this is
+// the one click that turns it on. Trying to autoplay unmuted just blocks
+// playback entirely, which reads as "the page is broken".
+$("sound").onclick = () => {
+  v.muted = !v.muted;
+  $("sound").textContent = v.muted ? "Sound on" : "Sound off";
+  $("sound").classList.toggle("on", !v.muted);
+  v.play().catch(() => {});
+};
+$("sync").onclick = () => {
+  if (sb && sb.buffered.length) v.currentTime = sb.buffered.end(sb.buffered.length - 1) - TARGET;
+  v.play().catch(() => {});
+};
+$("hudbtn").onclick = () => {
+  const off = $("hud").classList.toggle("off");
+  $("hudbtn").classList.toggle("on", !off);
+};
+$("full").onclick = () => {
+  const el = document.documentElement;
+  if (document.fullscreenElement) document.exitFullscreen();
+  else if (el.requestFullscreen) el.requestFullscreen();
+  else if (v.webkitEnterFullscreen) v.webkitEnterFullscreen();  // iOS
+};
+addEventListener("keydown", e => {
+  if (e.key === "m") $("sound").click();
+  if (e.key === "f") $("full").click();
+  if (e.key === "h") $("hudbtn").click();
+  if (e.key === "r") $("sync").click();
+});
+
+let idle;
+function awake() {
+  document.body.classList.remove("idle");
+  clearTimeout(idle);
+  idle = setTimeout(() => document.body.classList.add("idle"), 2500);
+}
+["mousemove", "touchstart", "keydown"].forEach(e => addEventListener(e, awake));
+awake();
+
+// -- run HUD ---------------------------------------------------------------
+// Served by the overlay on its own port, so this is cross-origin; the overlay
+// sends Access-Control-Allow-Origin and a failure here must never disturb the
+// video, hence the silent catch and the generous interval.
+const STATE = location.protocol + "//" + location.hostname + ":31720/state.json";
+async function hud() {
+  try {
+    const s = await (await fetch(STATE, { cache: "no-store" })).json();
+    if (s.status !== "playing") return;
+    const r = s.run || {}, p = s.perf || {}, res = s.res || {};
+    const bar = (k) => res[k] ? res[k][0] + "<span class='d'>/" + res[k][1] + "</span>" : "—";
+    $("hud").innerHTML =
+        "<div class='d'>" + (p.model || "") + "</div>"
+      + "<div><span class='d'>depth </span><span class='n'>" + (r.depth ?? "—") + "</span>"
+      + "<span class='d'>  dec </span><span class='n'>" + (r.decisions ?? "—") + "</span></div>"
+      + "<div><span class='d'>core </span><span class='n'>" + bar("core_integrity") + "</span></div>"
+      + "<div><span class='d'>ms </span><span class='n'>" + Math.round(p.ms_p50 || 0) + "</span>"
+      + "<span class='d'>  dpm </span><span class='n'>" + Math.round(r.dpm || 0) + "</span></div>";
+  } catch (e) { /* the video is the point; the HUD is a bonus */ }
+}
+hud(); setInterval(hud, 1500);
+</script>
+</body>
+</html>

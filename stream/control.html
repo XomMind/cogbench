@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cogbench DJ Table</title>
+<!--
+  Live knobs, for tuning mid-stream. Everything here writes to /params, which
+  the agent re-reads on its next decision and the overlay polls twice a second.
+  Nothing restarts, nothing reloads.
+-->
+<link rel="stylesheet" href="https://cogmind-cdn.plasticheart.info/cogfont.css">
+<style>
+  :root { --bg:#08130c; --line:#1c3a22; --dim:#4e7f5c; --fg:#7fe0a0; --hot:#cfffe0;
+          --cy:#63d8ff; --bad:#ff6b6b;
+          --mono:cogmind-cog,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+          --caps:cogmind-smallcaps,var(--mono); }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--fg); font-family:var(--mono);
+         padding:18px; display:flex; flex-direction:column; gap:14px;
+         max-width:560px; }
+  h1 { font-family:var(--caps); font-size:13px; letter-spacing:.2em; text-transform:uppercase;
+       color:var(--dim); font-weight:600; }
+  .row { border:1px solid var(--line); border-radius:4px; padding:10px 12px; }
+  .row .lab { display:flex; justify-content:space-between; align-items:baseline;
+              margin-bottom:8px; }
+  .name { font-family:var(--caps); font-size:12px; letter-spacing:.08em; }
+  .val { font-size:22px; color:var(--hot); font-variant-numeric:tabular-nums; }
+  .hint { color:var(--dim); font-size:10.5px; margin-top:6px; line-height:1.4; }
+  input[type=range] { width:100%; accent-color:var(--fg); }
+  .btns { display:flex; gap:8px; flex-wrap:wrap; }
+  button { font-family:var(--mono); font-size:12px; padding:7px 12px;
+           background:#0d1f14; color:var(--fg); border:1px solid var(--line);
+           border-radius:3px; cursor:pointer; }
+  button:hover { border-color:var(--fg); }
+  button.on { background:var(--fg); color:#04140a; border-color:var(--fg);
+              font-weight:700; }
+  #status { font-size:11px; color:var(--dim); }
+  .mini { font-size:10px; color:var(--dim); letter-spacing:.08em;
+          display:flex; flex-direction:column; gap:3px; }
+  .mini input, .mini select { font-family:var(--mono); font-size:12px;
+          padding:5px 6px; background:#0d1f14; color:var(--fg);
+          border:1px solid var(--line); border-radius:3px; width:110px; }
+  #rstate.up   { color:var(--fg); }
+  #rstate.down { color:var(--bad); }
+  #rwhy { color:var(--dim); font-size:10.5px; margin-top:6px; }
+  #rwhy.bad { color:var(--bad); }
+  /* The log only appears when there is something to explain -- a dead run --
+     so the table stays short while everything is fine. */
+  #rlog { display:none; margin-top:6px; padding:6px; max-height:120px;
+          overflow:auto; background:#050e08; border:1px solid var(--line);
+          border-radius:3px; color:var(--dim); font-size:10px;
+          line-height:1.4; white-space:pre-wrap; }
+  #rlog.show { display:block; }
+  #status b { color:var(--cy); }
+</style>
+</head>
+<body>
+<h1>Cogbench · live parameters</h1>
+
+<div class="row" id="runrow">
+  <div class="lab"><span class="name">RUN</span>
+                   <span class="val" id="rstate">—</span></div>
+  <div class="btns">
+    <button id="start">Start</button>
+    <button id="restart">Restart</button>
+    <button id="stop">Stop</button>
+    <button id="sup">Auto-revive</button>
+    <button id="loop">Loop episodes</button>
+  </div>
+  <div class="btns" style="margin-top:8px">
+    <label class="mini">decisions
+      <input type="number" id="dec" min="1" max="100000" step="50"></label>
+    <label class="mini">twitch #
+      <input type="text" id="tw" placeholder="none" size="12"></label>
+    <label class="mini">policy
+      <select id="pol">
+        <option value="model">model</option>
+        <option value="heuristic">heuristic</option>
+        <option value="scripts">scripts</option>
+      </select></label>
+  </div>
+  <div class="hint">Start/Restart use the model selected below, plus these.
+    <b>Auto-revive</b> covers the harness falling over: the agent comes back on
+    the same episode five seconds after a crash. <b>Loop episodes</b> covers the
+    bot dying: when a run plays itself out, Cogmind is relaunched on a new seed
+    and the agent starts again. Neither fights a Stop you asked for.</div>
+  <div class="hint" id="rwhy"></div>
+  <pre id="rlog"></pre>
+</div>
+
+<div class="row">
+  <div class="lab"><span class="name">TWITCH CHAT WINDOW</span>
+                   <span class="val"><span id="wv">10</span> min</span></div>
+  <input type="range" id="w" min="0" max="60" step="1" value="10">
+  <div class="hint">How far back the model is shown chat. Bigger window =
+    more prompt = more prompt-processing time per decision.</div>
+</div>
+
+<div class="row">
+  <div class="lab"><span class="name">CHAT MESSAGE CAP</span>
+                   <span class="val"><span id="lv">20</span></span></div>
+  <input type="range" id="l" min="0" max="120" step="1" value="20">
+  <div class="hint">Hard cap on lines, whatever the window holds. Repeated
+    messages collapse to one before this applies.</div>
+</div>
+
+<div class="row">
+  <div class="lab"><span class="name">MODEL</span>
+                   <span class="val" id="mv" style="font-size:13px">—</span></div>
+  <div class="btns">
+    <select id="model" style="flex:1; font-family:var(--mono); font-size:12px;
+            padding:7px; background:#0d1f14; color:var(--fg);
+            border:1px solid var(--line); border-radius:3px;"></select>
+    <button id="refresh">Refresh</button>
+  </div>
+  <div class="hint">Switches on the agent's next decision. Latency percentiles
+    reset so you are not reading two models in one distribution. Refresh
+    re-asks the endpoint — use it after a new model is loaded there.</div>
+</div>
+
+<div class="row">
+  <div class="lab"><span class="name">SCENE</span><span class="val" id="sv">—</span></div>
+  <div class="btns">
+    <button id="camoff">No webcam</button>
+    <button id="camon">Webcam corner</button>
+    <button id="chaton">Chat ON</button>
+    <button id="chatoff">Chat OFF</button>
+  </div>
+  <div class="hint">The webcam toggle re-lays-out every overlay source in
+    place — add one Browser Source to both scenes rather than two.</div>
+</div>
+
+<div class="row">
+  <div class="lab"><span class="name">SAY SOMETHING</span>
+                   <span class="val" id="qstate" style="font-size:13px">—</span></div>
+  <div class="btns">
+    <button id="say">Say one line</button>
+    <button id="clear">Clear</button>
+  </div>
+  <div class="hint">Asks the model, as itself, for one sentence about the run
+    and puts it on the overlay (<code>?only=quip</code>). It is a separate
+    question on the side — the agent's own loop is untouched, so nothing here
+    shows up in the benchmark numbers.</div>
+  <div class="hint" id="qtext" style="color:var(--cy)"></div>
+</div>
+
+<div id="status">—</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let cur = {};
+
+async function send(q) {
+  cur = await (await fetch("params" + (q ? "?" + q : ""), { method: q ? "POST" : "GET" })).json();
+  paint();
+}
+async function models(refresh) {
+  try {
+    const r = await (await fetch("models" + (refresh ? "?refresh=1" : ""))).json();
+    const sel = $("model");
+    const want = cur.model || sel.value;
+    sel.innerHTML = `<option value="">(leave as started)</option>`
+      + (r.models || []).map(m => `<option value="${m}">${m}</option>`).join("");
+    if (want) sel.value = want;
+    if (r.error) $("mv").textContent = "endpoint error";
+  } catch (e) { /* keep whatever is listed */ }
+}
+function paint() {
+  $("mv").textContent = cur.model || "as started";
+  $("w").value = cur.chat_window_min; $("wv").textContent = cur.chat_window_min;
+  $("l").value = cur.chat_limit;      $("lv").textContent = cur.chat_limit;
+  $("sv").textContent = (cur.cam ? "webcam" : "full") + (cur.chat_on ? " · chat" : " · no chat");
+  $("camon").classList.toggle("on", !!cur.cam);
+  $("camoff").classList.toggle("on", !cur.cam);
+  $("chaton").classList.toggle("on", !!cur.chat_on);
+  $("chatoff").classList.toggle("on", !cur.chat_on);
+}
+$("w").oninput = e => { $("wv").textContent = e.target.value; };
+$("l").oninput = e => { $("lv").textContent = e.target.value; };
+$("w").onchange = e => send("chat_window_min=" + e.target.value);
+$("l").onchange = e => send("chat_limit=" + e.target.value);
+$("camon").onclick  = () => send("cam=1");
+$("camoff").onclick = () => send("cam=0");
+$("chaton").onclick  = () => send("chat_on=1");
+$("chatoff").onclick = () => send("chat_on=0");
+$("model").onchange = e => send("model=" + encodeURIComponent(e.target.value));
+$("refresh").onclick = () => models(true);
+
+// -- run lifecycle ----------------------------------------------------------
+// Every button posts and then paints from the reply, so the table always shows
+// what the runner actually did rather than what was clicked.
+let run = {};
+async function runPost(path, extra) {
+  const q = new URLSearchParams({
+    decisions: $("dec").value || 600,
+    twitch: $("tw").value.replace(/^#/, ""),
+    policy: $("pol").value,
+    model: cur.model || "",
+    ...extra,
+  });
+  try {
+    run = await (await fetch("run/" + path + "?" + q, { method: "POST" })).json();
+  } catch (e) { run = { error: String(e) }; }
+  paintRun();
+}
+async function runStatus() {
+  try {
+    run = await (await fetch("run/status", { cache: "no-store" })).json();
+  } catch (e) { run = { error: String(e) }; }
+  paintRun();
+}
+function paintRun() {
+  const st = $("rstate"), why = $("rwhy"), log = $("rlog");
+  if (run.error) {
+    st.textContent = "unreachable"; st.className = "val down";
+    why.textContent = run.error; why.className = "bad";
+    log.classList.remove("show");
+    return;
+  }
+  const sp = run.spec || {};
+  st.textContent = run.running
+    ? "running · " + (run.decisions ?? 0) + "/" + sp.decisions
+    : "stopped";
+  st.className = "val " + (run.running ? "up" : "down");
+  $("sup").classList.toggle("on", !!sp.supervise);
+  $("loop").classList.toggle("on", !!sp.loop);
+  $("start").classList.toggle("on", !!run.running);
+  // Do not fight someone typing: the fields are only adopted from the runner
+  // while they are not focused.
+  const fill = (el, v) => { if (document.activeElement !== el) el.value = v; };
+  fill($("dec"), sp.decisions); fill($("tw"), sp.twitch); fill($("pol"), sp.policy);
+  const l = run.last;
+  if (run.running) {
+    why.className = "";
+    why.textContent = "up " + Math.round(run.uptime) + "s"
+      + (run.revivals ? " · revived " + run.revivals + "x" : "");
+    log.classList.remove("show");
+  } else if (l) {
+    const bad = l.why.startsWith("crashed") || l.why.startsWith("killed");
+    why.className = bad ? "bad" : "";
+    why.textContent = "last run " + l.why + " after " + Math.round(l.ran)
+      + "s at decision " + (l.decisions ?? "—")
+      + (l.episode ? " · " + l.episode : "");
+    log.textContent = (l.tail || []).join("\n");
+    log.classList.toggle("show", bad && !!(l.tail || []).length);
+  }
+}
+$("start").onclick   = () => runPost("start");
+$("restart").onclick = () => runPost("restart");
+$("stop").onclick    = () => runPost("stop");
+$("sup").onclick     = () => runPost("spec",
+                          { supervise: (run.spec || {}).supervise ? 0 : 1 });
+$("loop").onclick    = () => runPost("spec",
+                          { loop: (run.spec || {}).loop ? 0 : 1 });
+
+async function quip(clear) {
+  $("qstate").textContent = clear ? "clearing" : "asking…";
+  try {
+    const r = await (await fetch("say" + (clear ? "?clear=1" : ""),
+                                 { method: "POST" })).json();
+    $("qstate").textContent = r.error ? "failed" : (clear ? "cleared" : "said");
+    $("qtext").textContent = r.error || r.text || "";
+  } catch (e) {
+    $("qstate").textContent = "failed"; $("qtext").textContent = String(e);
+  }
+}
+$("say").onclick   = () => quip(false);
+$("clear").onclick = () => quip(true);
+
+async function status() {
+  try {
+    const s = await (await fetch("state.json", { cache: "no-store" })).json();
+    const c = s.chat_status;
+    $("status").innerHTML =
+      `decision <b>${s.run?.decisions ?? "—"}</b> · depth <b>${s.run?.depth ?? "—"}</b>`
+      + ` · ctx <b>${s.perf?.ctx_n ?? "—"}</b>/${s.perf?.ctx_max || "?"}`
+      + ` · p50 <b>${Math.round(s.perf?.ms_p50 ?? 0)}ms</b>`
+      + (c ? ` · chat #${c.channel} ${c.connected ? "connected" : "OFFLINE"}, ${c.held} held`
+           : " · chat not enabled");
+  } catch (e) { $("status").textContent = "no state yet"; }
+}
+send("").then(() => models(false));
+status(); setInterval(status, 2000); setInterval(() => send(""), 5000);
+runStatus(); setInterval(runStatus, 2000);
+</script>
+</body>
+</html>
