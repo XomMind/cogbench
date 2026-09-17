@@ -50,7 +50,9 @@ just stream-status        # browser encoder health and viewer count
 | ImagePullBackOff | Image tag, registry access, and node reachability |
 | CreateContainerConfigError | The `cogbench-endpoint` Secret exists with keys `url` and `api_key` |
 | Game container keeps restarting | Game logs; `/data/game/COGMIND.exe` and patched `SDL.dll` must exist |
-| StatMind permission error | Game-container `SYS_PTRACE` allowance and StatMind executable permissions |
+| StatMind permission error | `getcap /usr/local/bin/statmind` must print `cap_sys_ptrace=ep`, and the game container must keep `SYS_PTRACE` plus `allowPrivilegeEscalation: true` |
+| `memory magic ... not found` | Same as above. The reader says this when *every* memory read was denied, so it looks like a missing shim; it is usually the lost file capability |
+| `the shim published ... outside the game module` | `/data/game/SDL.dll` is older than the reader. Rebuild it with `build-sdl.sh` and stage it; the two are a matched pair |
 | Agent stopped but video works | `just status`, `just logs`, decision budget, and selected model |
 | Model requests fail | Endpoint availability, Secret references, and egress policy; see below |
 | Browser works but OBS does not | Correct `:31723/stream.ts` URL, `lite` logs, and no second OBS/VLC client |
@@ -151,7 +153,14 @@ installer**. Before moving it, provide or review:
 - CPU compatibility. FFmpeg is compiled with `-march=native`; review the builder
   and destination CPU together. The deployment currently has no node selector.
 - Permission for the game container's `SYS_PTRACE` capability. The other
-  containers drop all capabilities.
+  containers drop all capabilities. Note this is only half of what the reader
+  needs: with `runAsUser: 1000` and no ambient capabilities, `add: [SYS_PTRACE]`
+  reaches the bounding set only, and the effective capability comes from the
+  file capability the Dockerfile sets on the binary. Both halves must survive,
+  and a plain copy of the binary does not carry the xattr.
+- A patched `SDL.dll` on the PVC built from the same `SDL-1.2` tree as the
+  reader in the image. They exchange `StatmindLuigiStatus` by layout, so a stale
+  DLL makes the reader read the wrong globals.
 - Resource capacity. Containers have requests but no CPU/memory limits; check
   node pressure when sharing the worker with other workloads.
 - Service ports and network policies appropriate to the destination network.

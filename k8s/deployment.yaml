@@ -43,14 +43,22 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: cogbench
-          image: 192.168.1.187:30500/cogbench:20260917-watchdog
+          image: 192.168.1.187:30500/cogbench:retail-steam-20260917c
           # Restores what revisions 1-5 of this deployment already carried.
           # statmind reads the game's memory from a sibling process, which needs
-          # PTRACE_MODE_ATTACH. Same-uid is not enough under yama
-          # ptrace_scope=1 -- only a parent may attach to a descendant, and the
-          # game is a sibling of the reader, not its child. Dropping this does
-          # not fail loudly: the agent starts and then dies on
+          # PTRACE_MODE_ATTACH. Same-uid is not enough: the node runs yama
+          # ptrace_scope=2, where only a CAP_SYS_PTRACE holder may attach at
+          # all. Dropping this does not fail loudly: the agent starts and then
+          # dies on
           # `PermissionError: Operation not permitted: /usr/local/bin/statmind`.
+          #
+          # This half alone is not sufficient. runAsUser 1000 with no ambient
+          # capabilities means `add: [SYS_PTRACE]` reaches only the bounding
+          # set, and the reader picks the capability up from the file
+          # capability the Dockerfile sets on /usr/local/bin/statmind. Both
+          # halves are load-bearing: the bounding set here is what permits the
+          # file capability to take effect, and allowPrivilegeEscalation must
+          # stay true or NoNewPrivs suppresses it.
           securityContext:
             allowPrivilegeEscalation: true
             capabilities:
@@ -97,7 +105,7 @@ spec:
             - { name: pulse, mountPath: /tmp/pulse }
 
         - name: video
-          image: 192.168.1.187:30500/cogbench:20260917-watchdog
+          image: 192.168.1.187:30500/cogbench:retail-steam-20260917c
           # Wrapped in a retry loop rather than run bare. Loop mode restarts the
           # game container after every episode, which takes Xvfb with it, and a
           # bare ffmpeg just exits with "Cannot open display :99" and hands the
@@ -184,7 +192,7 @@ spec:
         #
         # Both run at once so the choice is a URL in OBS rather than a redeploy.
         - name: lite
-          image: 192.168.1.187:30500/cogbench:20260917-watchdog
+          image: 192.168.1.187:30500/cogbench:retail-steam-20260917c
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: { drop: [ALL] }
@@ -239,7 +247,7 @@ spec:
         # muxers each own their output socket and cannot be tee'd without a
         # remux, and a third x11grab costs less than the machinery to avoid it.
         - name: web
-          image: 192.168.1.187:30500/cogbench:20260917-watchdog
+          image: 192.168.1.187:30500/cogbench:retail-steam-20260917c
           command: ["python3", "/opt/cogbench/webstream.py", "serve",
                     "--port", "8094"]
           securityContext:
@@ -264,7 +272,7 @@ spec:
             - { name: pulse, mountPath: /tmp/pulse }
 
         - name: overlay
-          image: 192.168.1.187:30500/cogbench:20260917-watchdog
+          image: 192.168.1.187:30500/cogbench:retail-steam-20260917c
           command: ["python3", "/opt/cogbench/stream.py", "serve", "--port", "8080"]
           securityContext:
             allowPrivilegeEscalation: false
