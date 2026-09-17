@@ -21,6 +21,7 @@ is only safe because of that.
 import argparse
 import http.server
 import json
+import math
 import os
 import signal
 import socketserver
@@ -37,6 +38,7 @@ STATE_DIR = os.environ.get("COGBENCH_STREAM_DIR", os.path.join(HERE, "stream"))
 # The last run's arguments, so a restart after a pod bounce replays what was
 # actually playing rather than a default nobody chose.
 SPEC = os.path.join(STATE_DIR, "run-spec.json")
+RESULT = os.path.join(STATE_DIR, "run-result.json")
 LOG = os.environ.get("COGBENCH_AGENT_LOG", "/data/agent.log")
 AGENT = os.path.join(HERE, "agent.py")
 STATMIND = os.environ.get("COGBENCH_STATMIND", "/usr/local/bin/statmind")
@@ -67,9 +69,8 @@ def load_spec():
     try:
         with open(SPEC) as f:
             saved = json.load(f)
-        for k in DEFAULT_SPEC:
-            if k in saved:
-                spec[k] = saved[k]
+        if isinstance(saved, dict):
+            spec = coerce(spec, saved)
     except (OSError, ValueError):
         pass
     return spec
@@ -103,12 +104,14 @@ def coerce(spec, raw):
         elif isinstance(DEFAULT_SPEC[k], int):
             try:
                 out[k] = int(v)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 pass
         elif isinstance(DEFAULT_SPEC[k], float):
             try:
-                out[k] = float(v)
-            except (TypeError, ValueError):
+                value = float(v)
+                if math.isfinite(value):
+                    out[k] = value
+            except (TypeError, ValueError, OverflowError):
                 pass
         else:
             out[k] = str(v)
@@ -182,7 +185,7 @@ def argv_for(spec):
             "--policy", spec["policy"],
             "--decisions", str(spec["decisions"]),
             "--temperature", str(spec["temperature"]),
-            "--stream"]
+            "--stream", "--out", RESULT]
     if spec["model"]:
         argv += ["--model", spec["model"]]
     if spec["twitch"]:
@@ -265,6 +268,9 @@ class Runner:
             # under the previous three runs.
             try:
                 os.makedirs(os.path.dirname(LOG), exist_ok=True)
+                os.makedirs(STATE_DIR, exist_ok=True)
+                if os.path.exists(RESULT):
+                    os.unlink(RESULT)
                 log = open(LOG, "wb", buffering=0)
             except OSError as e:
                 return False, "cannot open %s: %s" % (LOG, e)
@@ -296,39 +302,34 @@ class Runner:
             return True, "started pid %d" % self.proc.pid
 
     def stop(self, timeout=10.0):
+        # Keep transitions serialized through process exit. In particular a
+        # pending supervisor revival must observe even a stop of a dead agent.
         with self.lock:
-            if not self.alive():
-                return False, "not running"
             self.stopping = True
-            pid, proc = self.proc.pid, self.proc
-            # An explicit stop also disarms the loop's autostart, so a pod that
-            # restarts for an unrelated reason does not quietly start playing
-            # again after someone deliberately stopped the run.
             if self.spec.get("autostart"):
                 self.spec["autostart"] = False
                 save_spec(self.spec)
-        # SIGTERM to the group: the agent has no handler, so this is abrupt by
-        # design. Nothing is lost that matters -- state.json is rewritten every
-        # decision and the episode result only exists at the end anyway.
-        try:
-            os.killpg(os.getpgid(pid), signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
-            pass
-        deadline = time.time() + timeout
-        while time.time() < deadline and proc.poll() is None:
-            time.sleep(0.2)
-        if proc.poll() is None:
+            if not self.alive():
+                return False, "not running; automatic revival cancelled"
+            proc = self.proc
             try:
-                os.killpg(os.getpgid(pid), signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
+                os.killpg(proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
                 pass
-            proc.wait(timeout=5)
-        return True, "stopped"
+            try:
+                proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                proc.wait(timeout=5)
+            return True, "stopped"
 
     def restart(self, spec=None):
-        if self.alive():
+        with self.lock:
             self.stop()
-        return self.start(spec)
+            return self.start(spec)
 
     # -- supervision ------------------------------------------------------
     def reap(self):
@@ -342,13 +343,21 @@ class Runner:
             if self.proc is None or self.proc.poll() is None:
                 return
             code = self.proc.returncode
+            try:
+                with open(RESULT) as f:
+                    result = json.load(f)
+                if not isinstance(result, dict):
+                    result = {}
+            except (OSError, ValueError):
+                result = {}
             self.last = {
+                "result": result,
                 "code": code,
                 # A clean finish is the agent reaching --decisions; anything
                 # else is a crash or a stop, and the distinction is what the
                 # control page colours.
                 "why": ("stopped" if self.stopping else
-                        "finished" if code == 0 else
+                        result.get("status", "finished") if code == 0 else
                         "killed (signal %d)" % -code if code < 0 else
                         "crashed (exit %d)" % code),
                 "at": time.time(),
@@ -360,17 +369,18 @@ class Runner:
             asked = self.stopping
             spec = dict(self.spec)
             self.stopping = False
-        # Two different endings with two different answers. A non-zero exit is
-        # the harness failing and the same episode is worth resuming; exit 0 is
-        # Cogmind's run being over -- usually the bot dead -- and there is
-        # nothing left to resume, so that one needs a whole new episode.
+        # A failure resumes the same episode. Only an explicit ended result
+        # may discard it; exit zero also covers an exhausted decision budget.
         revive = spec.get("supervise") and not asked and code != 0
-        fresh = spec.get("loop") and not asked and code == 0
+        fresh = (spec.get("loop") and not asked and code == 0
+                 and result.get("status") == "ended")
         if not (revive or fresh):
             return
         if fresh:
-            ok, out = new_episode(spec.get("seed") or some_seed())
             with self.lock:
+                if self.stopping or self.proc is not None or not self.spec.get("loop"):
+                    return
+                ok, out = new_episode(spec.get("seed") or some_seed())
                 self.last["episode"] = "new episode" if ok else "relaunch failed"
                 if not ok:
                     self.last["tail"] = (self.last.get("tail") or []) + out.splitlines()[-6:]
@@ -383,9 +393,11 @@ class Runner:
         # A crash loop must not become a hot loop: Cogmind takes a moment to be
         # ready again, and an instant respawn just crashes faster.
         time.sleep(5)
-        ok, _ = self.start()
-        if ok:
-            with self.lock:
+        with self.lock:
+            if self.stopping or self.proc is not None or not self.spec.get("supervise"):
+                return
+            ok, _ = self.start()
+            if ok:
                 self.revivals += 1
 
 

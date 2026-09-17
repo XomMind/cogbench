@@ -49,7 +49,7 @@
   button.on { background:var(--fg); color:#04140a; font-weight:700; }
   #msg { position:fixed; inset:0; display:grid; place-items:center;
          text-align:center; font-size:13px; color:var(--dim);
-         background:#05100a; z-index:5; padding:24px; line-height:1.6; }
+         background:#05100a; z-index:5; padding:24px; line-height:1.6; white-space:pre-line; }
   #msg b { color:var(--fg); display:block; font-size:15px; margin-bottom:8px;
            font-family:var(--caps); letter-spacing:.14em; }
   #msg.hide { display:none; }
@@ -100,11 +100,11 @@ const CODECS = [
 
 function fail(text) {
   $("msg").classList.remove("hide");
-  $("msgt").innerHTML = text;
+  $("msgt").textContent = text;
 }
 
 if (!MS) {
-  fail("This browser has no Media Source support.<br>Safari 17+, or any recent Chrome or Firefox.");
+  fail("This browser has no Media Source support.\nSafari 17+, or any recent Chrome or Firefox.");
 } else {
   start();
 }
@@ -126,18 +126,18 @@ function start() {
     try {
       sb = ms.addSourceBuffer(mime);
     } catch (e) {
-      return fail("This browser refused the stream format.<br>" + e.message);
+      return fail("This browser refused the stream format.\n" + e.message);
     }
     sb.mode = "sequence";
     sb.addEventListener("updateend", pump);
-    sb.addEventListener("error", () => fail("The video buffer rejected the stream."));
+    sb.addEventListener("error", () => reconnect("The video buffer rejected the stream."));
     read();
   }, { once: true });
   // Nothing has happened after this long, so say something useful instead of
   // leaving "connecting" on screen. Silence here always meant a MediaSource
   // that never opened, which is invisible in the console.
   setTimeout(() => {
-    if (!sb) fail("The video source never opened.<br>"
+    if (!sb) fail("The video source never opened.\n"
                   + "Safari 17+, Chrome or Firefox should all work — "
                   + "please report what this says.");
   }, 6000);
@@ -146,26 +146,58 @@ function start() {
 function pump() {
   if (!sb || sb.updating) return;
   if (queue.length) {
-    try { sb.appendBuffer(queue.shift()); } catch (e) { recover(e); }
+    // Concatenate whatever has piled up into one append. Appending arbitrary
+    // network chunks one at a time means an updateend round trip per chunk,
+    // and if they arrive faster than that the queue -- and the memory it
+    // holds -- grows without bound.
+    let chunk = queue.length === 1 ? queue[0] : join(queue);
+    queue = [];
+    try { sb.appendBuffer(chunk); } catch (e) { recover(e, chunk); }
     return;
   }
-  // Keep only a few seconds behind us. Without this the buffer grows for the
-  // whole session, and on a long stream Safari eventually gives up entirely.
-  try {
-    const b = sb.buffered;
-    if (b.length && v.currentTime - b.start(0) > 12) {
-      sb.remove(b.start(0), v.currentTime - 6);
-    }
-  } catch (e) { /* removal is best effort */ }
+  trim();
 }
 
-function recover(e) {
-  // QuotaExceeded is the common one: drop what is behind us and carry on
-  // rather than tearing the whole player down.
-  try {
-    const b = sb.buffered;
-    if (b.length) sb.remove(b.start(0), Math.max(b.start(0), v.currentTime - 2));
-  } catch (_) { fail("Playback failed: " + e.message); }
+function join(parts) {
+  let n = 0;
+  for (const p of parts) n += p.byteLength;
+  const out = new Uint8Array(n);
+  let at = 0;
+  for (const p of parts) { out.set(p, at); at += p.byteLength; }
+  return out;
+}
+
+// Drop everything we have already played. This has to run on its own schedule
+// rather than only when the append queue happens to empty: on a busy stream it
+// never emptied, the buffered range grew for the whole session, and Safari
+// eventually killed the tab. A live view has no use for history anyway.
+function trim() {
+  if (!sb || sb.updating || !sb.buffered.length) return;
+  const start = sb.buffered.start(0);
+  const keepFrom = v.currentTime - 4;
+  if (keepFrom - start > 2) {
+    try { sb.remove(start, keepFrom); } catch (e) { /* best effort */ }
+  }
+}
+
+function reconnect(message) {
+  if (ended) return;
+  ended = true;
+  fail(message + "\nReconnecting…");
+  setTimeout(() => location.reload(), 1500);
+}
+
+function recover(e, chunk) {
+  // Keep the rejected bytes: losing even one network chunk corrupts the
+  // current MP4 box. updateend retries after old buffered data is removed.
+  if (e.name === "QuotaExceededError" && sb.buffered.length) {
+    const from = sb.buffered.start(0), to = v.currentTime - 2;
+    if (to > from) {
+      queue.unshift(chunk);
+      try { sb.remove(from, to); return; } catch (_) { /* reconnect below */ }
+    }
+  }
+  reconnect("Playback failed: " + e.message);
 }
 
 async function read() {
@@ -174,7 +206,7 @@ async function read() {
     r = await fetch("live.mp4", { cache: "no-store" });
     if (!r.ok) throw new Error("server said " + r.status);
   } catch (e) {
-    fail("Cannot reach the stream.<br>" + e.message + "<br>Retrying…");
+    fail("Cannot reach the stream.\n" + e.message + "\nRetrying…");
     return setTimeout(read, 2000);
   }
   $("msg").classList.add("hide");
@@ -183,12 +215,18 @@ async function read() {
     let out;
     try { out = await reader.read(); } catch (e) { break; }
     if (out.done) break;
+    if (ended) { await reader.cancel(); return; }
     queue.push(out.value);
+    if (queue.reduce((n, p) => n + p.byteLength, 0) > 16 * 1024 * 1024) {
+      reconnect("Playback fell behind.");
+      await reader.cancel();
+      return;
+    }
     pump();
   }
   // The stream ended, which on this server means ffmpeg restarted. Start over
   // rather than sitting on a frozen frame.
-  if (!ended) { fail("Stream dropped, reconnecting…"); setTimeout(() => location.reload(), 1500); }
+  reconnect("Stream dropped.");
 }
 
 // -- live edge -------------------------------------------------------------
@@ -208,6 +246,7 @@ function edge() {
   } else {
     v.playbackRate = 1;
   }
+  trim();
   $("lat").textContent = behind.toFixed(2) + "s";
   $("buf").textContent = (end - (sb.buffered.start(0) || 0)).toFixed(1) + "s";
   const q = v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality() : null;

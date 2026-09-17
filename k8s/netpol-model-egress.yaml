@@ -51,3 +51,16 @@ spec:
         # client logs in as justinfan<n> with no credentials and cannot post.
         - protocol: TCP
           port: 6697
+    # The model endpoint when it is the laptop on the LAN rather than a public
+    # tunnel. The blanket rule above deliberately excludes every private range,
+    # so serving from a machine on the home network needs its own hole -- one
+    # address, one port, and nothing else in 192.168/16 becomes reachable.
+    #
+    # This is a DHCP address. If oMLX stops being reachable after the laptop
+    # reconnects, check this first.
+    - to:
+        - ipBlock:
+            cidr: 192.168.1.120/32
+      ports:
+        - protocol: TCP
+          port: 8000

@@ -18,7 +18,34 @@ root=$(cd "$here/.." && pwd)
 ctx="$here/image"
 tag=${1:-$(date +%Y%m%d-%H%M%S)}
 image=${COGBENCH_IMAGE:-192.168.1.187:30500/cogbench}:$tag
-buildkit=${COGBENCH_BUILDKIT:-kube-pod://slacker0-587575666b-2n6k8?namespace=buildkit&container=buildkitd}
+context=${COGBENCH_CONTEXT:-$(kubectl config current-context)}
+build_context=${COGBENCH_BUILD_CONTEXT:-$context}
+build_namespace=${COGBENCH_BUILD_NAMESPACE:-buildkit}
+if [ "${COGBENCH_NO_ROLLOUT:-0}" = "0" ] && [ "${COGBENCH_NAMESPACE:-cogbench}" != "cogbench" ]; then
+  echo "deployment.yaml targets namespace cogbench; refusing a different COGBENCH_NAMESPACE" >&2
+  exit 2
+fi
+buildkit=${COGBENCH_BUILDKIT:-}
+if [ -z "$buildkit" ]; then
+  # Resolve the current builder, not a pod name that expires on its next rollout.
+  pod=$(kubectl --context "$build_context" --request-timeout=10s -n "$build_namespace" \
+    get pods -l "${COGBENCH_BUILD_SELECTOR:-app=slacker0}" -o json | python3 -c '
+import json, sys
+pods = [p["metadata"]["name"] for p in json.load(sys.stdin)["items"]
+        if not p["metadata"].get("deletionTimestamp")
+        and any(c["type"] == "Ready" and c["status"] == "True"
+                for c in p.get("status", {}).get("conditions", []))]
+if len(pods) != 1:
+    sys.exit("Expected one ready BuildKit pod, found %d; check COGBENCH_BUILD_SELECTOR" % len(pods))
+print(pods[0])')
+  buildkit=$(python3 - "$pod" "$build_context" "$build_namespace" <<'PYURL'
+import sys, urllib.parse
+print("kube-pod://" + sys.argv[1] + "?" + urllib.parse.urlencode({
+    "context": sys.argv[2], "namespace": sys.argv[3], "container": "buildkitd"}))
+PYURL
+  )
+fi
+printf 'Build context: %s; workload context: %s\n' "$build_context" "$context"
 
 # Everything the image runs. Listed explicitly rather than copying the whole
 # tree: the harness directory also holds model weights, traces and a cog-minder
@@ -30,11 +57,20 @@ files="agent.py bot.py botdex.py cogbench.py episode.py glyphs.py hackdex.py
 rm -rf "$ctx/harness"
 mkdir -p "$ctx/harness/stream"
 for f in $files; do
-  [ -e "$root/$f" ] && cp "$root/$f" "$ctx/harness/" || true
+  cp "$root/$f" "$ctx/harness/"
 done
-cp "$root"/webstream.py "$ctx/harness/" 2>/dev/null || true
+cp "$root"/webstream.py "$ctx/harness/"
 cp "$root"/stream/*.html "$ctx/harness/stream/"
-[ -d "$root/data" ] && cp -R "$root/data" "$ctx/harness/" 2>/dev/null || true
+
+# The dexes read cog-minder's JSON at the path it sits at in the working tree,
+# so the layout has to be reproduced -- but only these three files. The clone
+# itself is 117MB of repository and the three that matter are 1.5MB. Leaving
+# them out is not a subtle failure: Botdex() raises in Agent.__init__ and every
+# run dies two seconds in, which is how this was found.
+mkdir -p "$ctx/harness/cog-minder/src/json"
+for j in bots.json items.json machine_hacks.json; do
+  cp "$root/cog-minder/src/json/$j" "$ctx/harness/cog-minder/src/json/"
+done
 
 echo "building $image"
 buildctl --addr "$buildkit" build \
@@ -59,5 +95,5 @@ if new != s:
     print("deployment.yaml -> %s" % image)
 PY
 
-kubectl apply -f "$here/deployment.yaml"
-kubectl -n cogbench rollout status deploy/cogbench --timeout=400s
+kubectl --context "$context" apply -f "$here/deployment.yaml"
+kubectl --context "$context" -n cogbench rollout status deploy/cogbench --timeout=400s

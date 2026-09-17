@@ -9,8 +9,8 @@ something being watched on the same LAN as the machine rendering it.
 
 How it works. One ffmpeg grabs X and PulseAudio and writes fragmented MP4 to a
 pipe: an initialisation segment (ftyp+moov) followed by a stream of fragments
-(moof+mdat). This process keeps the init segment, keeps a short ring of recent
-fragments, and gives every HTTP client the init segment followed by live
+(moof+mdat). This process keeps the init segment and gives every HTTP client
+the init segment followed by complete live
 fragments from wherever the stream currently is. The page appends those to a
 MediaSource buffer.
 
@@ -39,7 +39,13 @@ PORT = 8094
 DISPLAY = os.environ.get("DISPLAY", ":99")
 SIZE = os.environ.get("COGBENCH_WEB_SIZE", "1440x1080")
 FPS = os.environ.get("COGBENCH_WEB_FPS", "60")
-CRF = os.environ.get("COGBENCH_WEB_CRF", "18")
+CRF = os.environ.get("COGBENCH_WEB_CRF", "14")
+# The node is a 16-thread 5800X sitting at around 10% with everything running,
+# so the encoder is nowhere near the constraint and the preset can be spent on
+# quality instead of speed. `slow` costs perhaps a core more than `veryfast`
+# and buys a real reduction in the mush around glyph edges at the same CRF.
+PRESET = os.environ.get("COGBENCH_WEB_PRESET", "slow")
+ABR = os.environ.get("COGBENCH_WEB_ABR", "256k")
 # Keyframes decide how long a new viewer stares at nothing, because a
 # MediaSource cannot start decoding mid-GOP. One second is a good trade: any
 # shorter and the bitrate climbs for no benefit on a screen that barely moves.
@@ -54,16 +60,26 @@ def ffmpeg_argv():
         "-framerate", FPS, "-video_size", SIZE, "-i", DISPLAY,
         "-thread_queue_size", "512",
         "-f", "pulse", "-i", "cogbench.monitor",
-        "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
+        # zerolatency stays. It is what forbids B-frames and both lookaheads,
+        # and without it a slower preset would buy its quality back in frames
+        # of delay -- which is the one thing this feed exists to avoid.
+        "-c:v", "libx264", "-preset", PRESET, "-tune", "zerolatency",
         "-crf", CRF, "-pix_fmt", "yuv420p", "-profile:v", "high",
         "-g", GOP, "-bf", "0",
         # repeat-headers keeps SPS/PPS in band. It matters less for fMP4 than
         # for TS -- the moov carries them -- but costs nothing and makes the
         # stream self-describing if it is ever remuxed.
+        # Tuned for a screen of text rather than for video. psy-rd invents
+        # detail that reads as noise on flat black; aq-mode spends bits on flat
+        # areas, and this screen is mostly flat; the deblocking filter rounds
+        # the corners off letters, so it is turned down rather than off. ref
+        # and subme are raised because a static screen references its own past
+        # almost perfectly and the extra search is nearly free here.
         "-x264-params", "keyint=%s:scenecut=0:repeat-headers=1:psy-rd=0:"
-                        "aq-mode=0:deblock=-2,-2" % GOP,
+                        "aq-mode=0:deblock=-2,-2:ref=4:subme=9:trellis=2:"
+                        "me=umh" % GOP,
         "-af", "aresample=async=1000:min_hard_comp=0.100:first_pts=0",
-        "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2",
+        "-c:a", "aac", "-b:a", ABR, "-ar", "48000", "-ac", "2",
         # empty_moov + default_base_moof is the combination browsers expect.
         # The flag is default_base_moof, not default_base_is_moof -- the latter
         # is what the spec calls the bit it sets, and ffmpeg rejects the whole
@@ -75,6 +91,27 @@ def ffmpeg_argv():
         "-frag_duration", "200000",
         "-f", "mp4", "pipe:1",
     ]
+
+
+# x11grab hands ffmpeg frames in real time, so the format probe always ends
+# having seen one or two and says so -- every time any encoder starts, forever.
+# The estimate it could not make is one we supply anyway with -framerate, so the
+# line carries no information. Neither a smaller probe (-probesize 32
+# -analyzeduration 0) nor the larger one the message itself suggests removes it.
+# Dropping this single known line keeps the container logs worth reading, which
+# matters more here than it sounds: real ffmpeg errors in this pod have twice
+# been the actual cause of a stream failure.
+BENIGN = ("not enough frames to estimate rate",)
+
+
+def _relay_stderr(pipe):
+    try:
+        for line in iter(pipe.readline, b""):
+            text = line.decode("utf-8", "replace").rstrip()
+            if text and not any(b in text for b in BENIGN):
+                print(text, file=sys.stderr, flush=True)
+    except Exception:
+        pass
 
 
 class Fanout:
@@ -95,80 +132,97 @@ class Fanout:
         self.proc = None
         self.started = 0.0
         self.restarts = 0
+        self.bytes_in = 0
         self.bytes_out = 0
 
     def add(self, q):
         with self.lock:
-            self.clients.append(q)
+            if self.init:
+                self.clients.append(q)
+            return self.init
 
     def drop(self, q):
         with self.lock:
-            if q in self.clients:
-                self.clients.remove(q)
+            self.clients = [client for client in self.clients if client is not q]
+
+    def reset(self):
+        with self.lock:
+            self.init = b""
+            for q in self.clients:
+                q.clear()
+                q.append(None)  # End this response; the browser reconnects.
+            self.clients.clear()
 
     def publish(self, chunk):
         with self.lock:
-            for q in self.clients:
-                # A viewer whose connection has stalled must not hold the
-                # stream back for everyone else, so its queue is bounded and
-                # the oldest fragment is dropped. Falling behind is recoverable
-                # -- MediaSource skips ahead -- and blocking here is not.
+            for q in list(self.clients):
                 if len(q) >= 60:
-                    try:
-                        q.popleft()
-                    except IndexError:
-                        pass
-                q.append(chunk)
-        self.bytes_out += len(chunk)
+                    # Dropping bytes breaks MP4 framing and inter-frame video
+                    # references. Reconnect with a fresh initialization instead.
+                    q.clear()
+                    q.append(None)
+                    self.clients = [client for client in self.clients if client is not q]
+                else:
+                    q.append(chunk)
+                    self.bytes_out += len(chunk)
 
     def run(self):
-        """Keep one ffmpeg alive and parse its output into whole boxes."""
+        """Keep one ffmpeg alive, ending viewers at each encoder boundary."""
         while True:
-            self.proc = subprocess.Popen(ffmpeg_argv(), stdout=subprocess.PIPE,
-                                         stderr=None, bufsize=0)
-            self.started = time.time()
+            self.reset()
+            self.proc = None
             try:
+                self.proc = subprocess.Popen(ffmpeg_argv(), stdout=subprocess.PIPE,
+                                             stderr=subprocess.PIPE, bufsize=1 << 20)
+                threading.Thread(target=_relay_stderr, args=(self.proc.stderr,),
+                                 daemon=True).start()
+                self.started = time.time()
                 self._pump(self.proc.stdout)
-            except Exception:
-                pass
-            try:
-                self.proc.kill()
-            except Exception:
-                pass
-            self.restarts += 1
-            # X or PulseAudio going away (a container restart next door) is the
-            # usual reason to land here, and both come back within seconds.
+            except (OSError, ValueError) as exc:
+                print("webstream: %s" % exc, file=sys.stderr, flush=True)
+            finally:
+                self.reset()
+                if self.proc is not None:
+                    if self.proc.poll() is None:
+                        self.proc.kill()
+                    self.proc.wait()
+                    self.proc.stdout.close()
+                self.restarts += 1
             time.sleep(1.0)
 
     def _pump(self, out):
         init = b""
+        fragment = None
         while True:
             head = _read_exactly(out, 8)
-            if not head:
+            if head is None:
                 return
-            size = struct.unpack(">I", head[:4])[0]
-            kind = head[4:8]
-            if size == 1:                      # 64-bit extended size
+            size, kind = struct.unpack(">I4s", head)
+            if size == 1:
                 ext = _read_exactly(out, 8)
-                if not ext:
+                if ext is None:
                     return
                 size = struct.unpack(">Q", ext)[0]
-                body = _read_exactly(out, size - 16)
-                box = head + ext + (body or b"")
-            else:
-                body = _read_exactly(out, size - 8) if size > 8 else b""
-                if size > 8 and body is None:
-                    return
-                box = head + (body or b"")
+                head += ext
+            if size < len(head) or size > 64 * 1024 * 1024:
+                raise ValueError("invalid MP4 box size: %d" % size)
+            body = _read_exactly(out, size - len(head))
+            if body is None:
+                return
+            box = head + body
+            self.bytes_in += len(box)
             if kind in (b"ftyp", b"moov"):
-                # The init segment is whatever precedes the first fragment.
-                # Held whole so a client arriving an hour from now still gets a
-                # decodable stream without waiting for ffmpeg to restart.
                 init += box
                 if kind == b"moov":
-                    self.init = init
-                continue
-            self.publish(box)
+                    with self.lock:
+                        self.init = init
+            elif kind == b"moof":
+                fragment = box
+            elif kind == b"mdat" and fragment is not None:
+                # Subscribe between complete fragments, never halfway through
+                # the moof/mdat pair that describes one fragment's samples.
+                self.publish(fragment + box)
+                fragment = None
 
 
 def _read_exactly(f, n):
@@ -203,9 +257,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             import json
             body = json.dumps({
                 "clients": len(FAN.clients),
+                "bytes_in": FAN.bytes_in,
+                "bytes_out": FAN.bytes_out,
                 "init_bytes": len(FAN.init),
                 "uptime": round(time.time() - FAN.started, 1),
                 "restarts": FAN.restarts,
+                "encoder": {"preset": PRESET, "crf": CRF, "fps": FPS,
+                            "size": SIZE, "audio": ABR},
             }).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -229,30 +287,36 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def live(self):
         """One viewer: the init segment, then fragments as they are produced."""
-        init = FAN.init
+        q = collections.deque()
+        init = FAN.add(q)
         if not init:
             return self.send_error(503, "stream starting")
-        self.send_response(200)
-        self.send_header("Content-Type", "video/mp4")
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Transfer-Encoding", "chunked")
-        self.end_headers()
-        q = collections.deque()
-        FAN.add(q)
         try:
+            self.connection.settimeout(10)
+            self.send_response(200)
+            self.send_header("Content-Type", "video/mp4")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
             self.chunk(init)
             idle = 0.0
             while True:
-                if not q:
+                with FAN.lock:
+                    chunk = q.popleft() if q else b""
+                if chunk == b"":
                     time.sleep(0.01)
                     idle += 0.01
                     # Nothing for this long means the encoder died rather than
                     # the screen being still -- fragments are emitted on a timer.
                     if idle > 30:
+                        self.chunk(b"")
                         return
                     continue
                 idle = 0.0
-                self.chunk(q.popleft())
+                if chunk is None:
+                    self.chunk(b"")
+                    return
+                self.chunk(chunk)
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass                     # the tab was closed
         finally:

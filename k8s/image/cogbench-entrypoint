@@ -104,6 +104,18 @@ if command -v pulseaudio >/dev/null 2>&1; then
     >/dev/null 2>&1 || echo "pulseaudio failed to start; the game will be silent" >&2
   sleep 1
   pactl set-default-sink cogbench >/dev/null 2>&1 || true
+  # Stop the sink suspending itself when nothing is playing. A suspended null
+  # sink stops feeding its monitor, and every encoder here muxes that monitor
+  # alongside the screen: the muxer interleaves by timestamp, so it holds video
+  # back waiting for audio that will not arrive until the game makes a noise
+  # again. x11grab is a live source and cannot wait, so it drops the frames it
+  # could not hand over.
+  #
+  # The result was a 60fps capture arriving as about 2fps, getting worse the
+  # longer a stream ran, with every process sitting near idle -- which reads as
+  # a slow encoder and is nothing of the sort. A freshly started encoder was
+  # always fine, because audio happened to be flowing at that moment.
+  pactl unload-module module-suspend-on-idle >/dev/null 2>&1 || true
   # Wine picks its audio driver from the registry, not the environment.
   wine reg add 'HKCU\Software\Wine\Drivers' /v Audio /d pulse /f >/dev/null 2>&1 || true
 fi
@@ -236,10 +248,31 @@ if [ "${COGBENCH_AUTOSTART:-0}" != "0" ] || [ "$armed" = "1" ]; then
      "http://127.0.0.1:${COGBENCH_RUNNER_PORT:-8099}/run/start" >/dev/null 2>&1) &
 fi
 
+# Watch COGMIND.exe itself, not the launcher.
+#
+# `wine COGMIND.exe` returns almost immediately: the game ends up under
+# wineserver, so $game_pid is a launcher that outlives it. When Cogmind exited
+# -- a crash, or a run simply ending -- this loop saw its launcher alive and
+# kept going, and the container sat there with Xvfb, PulseAudio, the runner and
+# the StatMind daemon all healthy and no game at all. Nothing restarted it,
+# because from kubelet's side nothing had failed. Every agent then died two
+# seconds in on "statmind exited", forever, and the only cure was deleting the
+# pod by hand.
+#
+# Exiting instead lets kubelet restart the container, which is the one path
+# that ends with a freshly seeded, playable game.
+game_gone() {
+  ! pgrep -f 'COGMIND.exe' >/dev/null 2>&1
+}
+
 attempt=0
-while kill -0 "$game_pid" 2>/dev/null; do
+while kill -0 "$game_pid" 2>/dev/null && ! game_gone; do
   if python3 /opt/cogbench/cogbench.py --statmind /usr/local/bin/statmind daemon; then
     exit 0
+  fi
+  if game_gone; then
+    echo "Cogmind is gone; ending the container so it restarts" >&2
+    exit 1
   fi
 
   attempt=$((attempt + 1))

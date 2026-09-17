@@ -52,7 +52,6 @@ with the halves folded together.
 
 import argparse
 import collections
-import hashlib
 import json
 import os
 import sys
@@ -373,7 +372,7 @@ def main():
         if a.cmd == "art":
             for s in a.slots or sorted(m):
                 print("slot %d  %r" % (s, table().get(s, "?")))
-                print("\n".join("  " + l for l in art(m[s], cw)) if s in m
+                print("\n".join("  " + line for line in art(m[s], cw)) if s in m
                       else "  (empty)")
             return
         tbl = table()
@@ -393,9 +392,9 @@ def main():
         lines = read_video(sm, scr, atlases["text"])
         print("%dx%d screen, %dx%d cells, %.1fs\n"
               % (scr["w"], scr["h"], *atlases["text"]["cell"], time.time() - t))
-        for i, l in enumerate(lines):
-            if l.strip():
-                print("%3d|%s" % (i, l))
+        for i, line in enumerate(lines):
+            if line.strip():
+                print("%3d|%s" % (i, line))
         return
 
     grid, n = capture(sm, atlases, repaint=not a.no_repaint)

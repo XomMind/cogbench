@@ -1,150 +1,147 @@
-# Cogbench sources for OBS
+# Watch Cogbench and set up OBS
 
-Two ports. `31720` is the overlay server (pages, state, control, MJPEG); `31722`
-is the lossless A/V feed. Replace `slacker` with the node if it moves.
+**Just watching?** [Open the live game](http://slacker.local:31724/) and click
+**Sound on**. You do not need OBS. On your Mac, `just watch` opens the same page.
 
-The old MP3 feed on `31721` is gone — audio rides inside the A/V stream now.
+The addresses below use `slacker.local`. If it is unreachable, follow
+[the connection guide](SETUP.md#connection-problems).
 
-## Just watching — open this in Safari
+## OBS: game picture and sound
 
-    http://slacker:31724/
+1. In OBS, select your scene. Under **Sources**, click **+ → Media Source**.
+   Name it **Cogmind game**.
+2. Turn off **Local File** and paste this into **Input**:
 
-A plain web page. Fragmented MP4 over a single HTTP response, appended to a
-MediaSource — the lowest-latency route into Safari that involves no WebRTC, no
-signalling, no UDP and no second server. A few hundred milliseconds on a LAN.
+   ```text
+   http://slacker.local:31723/stream.ts
+   ```
 
-Unlike every feed below it, **this one serves any number of viewers at once**:
-the Python process owns the encoder's pipe and each browser is just another
-consumer, so opening it on a phone does not steal it from the laptop.
+   Or run `just obs-url` on your Mac to copy it.
+3. Turn off **Restart playback when source becomes active**. If your OBS version
+   shows **Network Buffering**, start with 1 MB; try 0 MB for less delay.
+4. Click **OK**. Check that the game is visible and its meter moves in the
+   **Audio Mixer** when the game makes a sound.
 
-It starts muted, because Safari refuses to autoplay with sound — one click on
-*Sound on*. Keys: `m` mute, `f` fullscreen, `h` HUD, `r` resync.
+The feed carries both picture and sound: 1440×1080, 60 fps by default, H.264
+video and AAC stereo audio. Neither is lossless.
 
-The page keeps itself at the live edge rather than trusting the element to:
-after any stall a MediaSource will happily stay a second behind forever, so it
-seeks when far behind and plays 5% fast when merely drifting. The reported
-latency in the bar is that gap.
+**Only one client can use this feed at a time.** Close VLC or another OBS source
+using the same URL before connecting. Other people can use the browser watch
+page at the same time; it supports multiple viewers.
 
-## The A/V feed — Media Source
+The old `:31722/stream.mkv` and `:31721` audio feed are no longer exposed by the
+current deployment. Replace saved sources that use them.
 
-    http://slacker:31722/stream.mkv
+## Add the stats beside the game
 
-Matroska, H.264 at 60fps + **FLAC** 48kHz stereo, ~10 Mbit/s.
+For the standard landscape scene:
 
-**Audio is lossless.** FLAC stores the null sink's s16 samples exactly.
+1. Set the OBS base canvas to **1920×1080**.
+2. Position **Cogmind game** at the top-left, at **1440×1080**.
+3. Add a **Browser Source** named **Cogbench stats** with this URL:
 
-**Video is not, by default, and deliberately.** Lossless and/or 4:4:4 both
-encode as High 4:4:4 Predictive, and OBS's Media Source plays the audio from
-such a stream while showing no picture — a confusing failure, because it
-sounds like the stream is working. The default is therefore Constrained
-Baseline / yuv420p at CRF 12, which every decoder handles and which is visually
-very close on a screen that is mostly static text.
+   ```text
+   http://slacker.local:31720/overlay.html?video=0
+   ```
 
-To get the lossless 4:4:4 version back on the `raw` container (fine for ffmpeg
-or VLC, not for OBS):
+4. Set its width to **1920** and height to **1080**. Turn off **Shutdown source
+   when not visible**.
+5. Put **Cogbench stats above Cogmind game** in the Sources list, aligned to the
+   top-left. Its transparent game area lets the Media Source show through.
 
-    COGBENCH_RAW_PIXFMT=yuv444p
-    COGBENCH_RAW_PROFILE=high444
-    COGBENCH_RAW_CRF=0
+You should now have the game on the left and agent information on the right.
+Use [the control page](http://slacker.local:31720/control.html) to start or stop
+the agent, choose a model, and change scene settings. `just control` opens it.
 
-In OBS: **Media Source**, uncheck *Local File*, paste the URL, uncheck *Restart
-playback when source becomes active*, set *Network Buffering* to 0–1 MB.
+## Other layouts
 
-One client at a time. ffmpeg's HTTP muxer serves a single consumer and then
-re-listens — so if you open it in VLC to check, OBS drops until you close VLC,
-and reconnects about a second later.
-
-## Widgets — Browser Source, one per card
-
-    http://slacker:31720/overlay.html?only=NAME&video=0
-
-Each renders one card alone on a transparent background, 480px wide and as tall
-as the card needs, scaled to whatever you size the source. Add as many as you
-like and place them yourself.
-
-| `only=` | Card | What it shows |
+| Layout | Browser Source URL | Source size |
 |---|---|---|
-| `perf` | Inference | Model name, current latency, decisions/min, a pp/gen/wait phase bar, latency sparkline, and P50/P95/P99, context used, prompt and generation tok/s, cache hits, draft acceptance |
-| `decisions` | Decisions | The literal string the model emitted, then the last several decisions as index / action / result |
-| `view` | Agent view | The agent's *fogged* map — what it has actually seen, not the game's view — with walls, items, hostiles, exits coloured, plus tiles-mapped count |
-| `guards` | Guards | Which safety guards are engaged, as chips, plus the active script and its dossier line |
-| `run` | Run | Location, core integrity, matter, energy and heat as bars |
-| `build` | Build | Parts attached per slot (power/propulsion/utility/weapon), inventory, and nearby contacts with bearings |
-| `log` | Log | The game's own last six messages |
-| `chat` | Chat → model | The Twitch lines actually being fed into the prompt |
-| `quip` | The model says | The one sentence from the **Say one line** button. Stays blank until pressed, so the source is invisible until it has something |
+| Whole scene, including fallback video | `http://slacker.local:31720/overlay.html` | 1920×1080 |
+| Vertical / mobile | `http://slacker.local:31720/overlay.html?layout=vertical` | 1080×1920 |
+| Vertical stats over a Media Source | `http://slacker.local:31720/overlay.html?layout=vertical&video=0` | 1080×1920 |
 
-## Vertical / mobile scene
+The built-in overlay video is MJPEG at 15 fps and has **no audio**. Use the
+Media Source for sound and smoother video. Avoid leaving both pictures visible:
+use `video=0` when placing the overlay over the Media Source.
 
-    http://slacker:31720/overlay.html?layout=vertical
+For the vertical layout, set the canvas to 1080×1920 and place the game at the
+top-left, sized to 1080×810. The cards stack below it.
 
-1080x1920. The game sits on top at 1080x810 — the X display is 1440x1080 and
-both are 4:3, so it fills the width exactly, no letterbox, no distortion — and
-Inference, Run, Decisions, Log and the model's line stack underneath at twice
-the size the desktop column uses.
+Add URL options with `?` for the first option and `&` for later ones:
 
-The agent view, guards and build cards are left out on purpose: they reward
-leaning in, which is the one thing a phone viewer cannot do. Pull any of them
-in as their own `?only=` source if you want them.
-
-`?cam=1` reserves a strip for a webcam here too.
-
-## Whole scene in one source
-
-    http://slacker:31720/overlay.html
-
-1920x1080: game video at native 1440x1080 plus the full right-hand column. Add
-at 1920x1080 and untick *Shutdown source when not visible*.
-
-Flags: `?video=0` leaves the game area transparent (use with the Media Source
-under it), `?panel=hud` swaps the agent-only column for the resources/parts/log
-one, `?chat=1` adds the chat card, `?cam=1` reserves a 480x480 hole for a
-webcam. Leave `cam` off the URL to let the control page switch layout live
-without the source reloading.
-
-## Game video on its own
-
-    http://slacker:31720/video.mjpg
-
-MJPEG at 15fps, for a Browser Source. Fine as a fallback; prefer the Media
-Source above, which is lossless, 60fps and carries the audio.
-
-## Control page
-
-    http://slacker:31720/control.html
-
-Run lifecycle (Start / Restart / Stop, decisions, twitch channel, policy),
-Auto-revive and Loop episodes, live model switch, chat window and cap, scene
-and webcam toggles, and the Say one line / Clear buttons.
-
-## Fonts
-
-Both pages load Cogmind's own faces from
-`https://cogmind-cdn.plasticheart.info/cogfont.css` — `cogmind-cog` for text,
-`cogmind-smallcaps` for the all-caps labels. The old mono stack stays behind
-them, so a machine that cannot reach the CDN still renders correctly rather
-than breaking. The agent's fogged map deliberately stays on a metric monospace
-font: it is a character grid and needs uniform advance widths.
-
-The game itself is set to `18/Cog` via `COGBENCH_FONTSET`, applied by the
-entrypoint before Cogmind starts (the game rewrites `system.cfg` on exit, so
-editing it live does not stick). Keep any override in the `18/` size class —
-`18/Cog`, `18/CogNarrow`, `18/CogWide`, `18/Smallcaps`, `18/Terminus`,
-`18/X11`… — because the harness reads the screen on a 9x18 glyph grid and a
-different size moves every cell.
-
-## Raw endpoints
-
-| | |
+| Option | Effect |
 |---|---|
-| `GET :31724/live.mp4` | the fMP4 stream itself, multi-client |
-| `GET :31724/stat` | viewer count, encoder uptime, restarts |
-| `GET /state.json` | everything the overlay draws, rewritten every decision |
-| `GET /quip.json` | the current spoken line |
-| `GET,POST /params` | live knobs: `cam`, `chat_on`, `chat_window_min`, `chat_limit`, `model` |
-| `GET /models` | models the endpoint is serving, `?refresh=1` to re-ask |
-| `GET /run/status` | running, pid, uptime, decisions, spec, how the last run ended |
-| `POST /run/start\|stop\|restart` | lifecycle; start takes `model`, `decisions`, `twitch`, `policy`, `temperature` |
-| `POST /run/spec` | change the spec without restarting, e.g. `?supervise=1`, `?loop=1` |
-| `GET /run/log?n=` | tail of the agent log |
-| `POST /say`, `POST /say?clear=1` | one sentence from the model, and clear it |
+| `video=0` | Make the game area transparent |
+| `panel=hud` | Show resources, parts, and log instead of the default agent panel |
+| `chat=1` | Include the chat card |
+| `cam=1` | Reserve space for a webcam source underneath the overlay |
+
+Leave `cam` out to let the control page toggle webcam space live.
+
+### Individual cards
+
+Add a Browser Source per card using this pattern:
+
+```text
+http://slacker.local:31720/overlay.html?only=perf&video=0
+```
+
+Start with a width of **480**, choose enough height to show the card, then
+position or crop it in your scene. Replace `perf` with a name below.
+
+| Name | Shows |
+|---|---|
+| `perf` | Model, response speed, context usage, and inference statistics |
+| `decisions` | Model output and recent actions/results |
+| `view` | The explored map available to the agent |
+| `guards` | Active safety guards and script |
+| `run` | Location, core integrity, matter, energy, and heat |
+| `build` | Attached parts, inventory, and nearby contacts |
+| `log` | The game's recent messages |
+| `chat` | Twitch messages being passed to the model |
+| `quip` | The line requested with **Say one line**; blank until used |
+
+## If something looks wrong
+
+| Problem | What to try |
+|---|---|
+| URL downloads a file in a browser | Use port **31724** to watch; **31723/stream.ts** belongs in OBS Media Source |
+| No picture or sound | Check the URL, close other clients of the OBS feed, then reconnect the source |
+| Sound but no picture | Replace any old Matroska URL with `:31723/stream.ts`, then reconnect |
+| Picture but no sound | Check the OBS mixer and source mute; Browser Source overlay video has no audio |
+| Double or echoing audio | Mute the browser watch page and remove duplicate audio sources |
+| Stats hidden behind the game | Move the stats Browser Source above the Media Source |
+| Old or blank stats | Check the control page or `just status`; observations update as the agent runs |
+| Playback falls behind | Reconnect the OBS source; on the watch page, press `r` to resync |
+| Nothing loads | Run `just doctor`, then use [the tunnel fallback](SETUP.md#connection-problems) |
+
+Browser watch shortcuts: **m** mute, **f** fullscreen, **h** HUD, **r** resync.
+The page starts muted and reconnects after stream interruptions.
+
+## Technical reference
+
+These are deployment defaults, not a live health report:
+
+| Address/path | Purpose |
+|---|---|
+| `:31724/` | Browser player |
+| `:31724/live.mp4` | Shared browser A/V stream |
+| `:31724/stat` | Viewer count and encoder health |
+| `:31723/stream.ts` | Single-client OBS A/V stream |
+| `:31720/video.mjpg` | Silent MJPEG fallback |
+| `:31720/state.json` | Latest overlay state |
+| `:31720/quip.json` | Current model line |
+| `:31720/params` | GET/POST live model, chat, and camera settings |
+| `:31720/models` | Available models; `?refresh=1` refreshes the list |
+| `:31720/run/status` | Agent status and last result |
+| `:31720/run/start`, `/run/stop`, `/run/restart` | POST agent lifecycle actions |
+| `:31720/run/spec` | POST saved run settings |
+| `:31720/run/log?n=40` | Recent agent log |
+| `:31720/say`, `/say?clear=1` | POST request or clear a model line |
+
+Overlays load Cogmind fonts from `https://cogmind-cdn.plasticheart.info/cogfont.css`
+and fall back to local fonts if unavailable. The agent map uses a monospace grid.
+The game's `COGBENCH_FONTSET` defaults to `18/Cog`; keep overrides in the `18/`
+size class because screen reading assumes a 9×18 glyph grid. The entrypoint
+applies this setting before launch; live edits may be overwritten on exit.

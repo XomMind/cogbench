@@ -150,8 +150,8 @@ def find_glyph(dump, glyph):
 def known_cells(dump):
     """How much of the window is explored: (known, total)."""
     lines = dump.get("map", {}).get("lines", [])
-    total = sum(len(l) for l in lines)
-    unknown = sum(l.count(UNKNOWN) for l in lines)
+    total = sum(len(line) for line in lines)
+    unknown = sum(line.count(UNKNOWN) for line in lines)
     return total - unknown, total
 
 

@@ -43,7 +43,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: cogbench
-          image: 192.168.1.187:30500/cogbench:20260916-safari
+          image: 192.168.1.187:30500/cogbench:20260917-watchdog
           # Restores what revisions 1-5 of this deployment already carried.
           # statmind reads the game's memory from a sibling process, which needs
           # PTRACE_MODE_ATTACH. Same-uid is not enough under yama
@@ -97,7 +97,7 @@ spec:
             - { name: pulse, mountPath: /tmp/pulse }
 
         - name: video
-          image: 192.168.1.187:30500/cogbench:20260916-safari
+          image: 192.168.1.187:30500/cogbench:20260917-watchdog
           # Wrapped in a retry loop rather than run bare. Loop mode restarts the
           # game container after every episode, which takes Xvfb with it, and a
           # bare ffmpeg just exits with "Cannot open display :99" and hands the
@@ -125,7 +125,8 @@ spec:
                   -f x11grab -draw_mouse 0 \
                     -framerate 15 -video_size 1440x1080 -i :99 \
                   -q:v 6 -f image2 -atomic_writing 1 -update 1 -y \
-                  /run/frames/frame.jpg || true
+                  /run/frames/frame.jpg 2>&1 \
+                  | grep -v "not enough frames to estimate rate" || true
                 sleep 1
               done
           resources:
@@ -149,102 +150,10 @@ spec:
         # the game through LuigiAI -- so the only thing the cursor ever did was
         # park itself on the stream wherever it was last left.
         #
-        # 4:4:4 would be the right answer on quality alone -- 4:2:0 keeps one
-        # colour sample per 2x2 block and Cogmind is saturated single-pixel
-        # coloured text -- but it is not decodable where it has to be. Both
-        # yuv444p and x264's lossless mode (-qp 0) encode as High 4:4:4
-        # Predictive, and OBS's Media Source plays the audio from such a stream
-        # while showing no picture at all, which is a confusing failure because
-        # it looks like a video problem and sounds like a working stream.
-        #
-        # So the default is plain High profile 4:2:0 at a low CRF: visually
-        # very close on a mostly static screen, and it actually appears.
-        # COGBENCH_RAW_PIXFMT=yuv444p with COGBENCH_RAW_PROFILE=high444, and
-        # COGBENCH_RAW_CRF=0 for true lossless, restores it for players that
-        # cope -- ffmpeg and VLC both do. Audio is unaffected either way and
-        # stays lossless FLAC.
-        - name: raw
-          image: 192.168.1.187:30500/cogbench:20260916-safari
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities: { drop: [ALL] }
-          command: ["sh", "-c"]
-          # Same one-client-then-exit behaviour as any ffmpeg http muxer, so
-          # the same loop puts it straight back on the socket.
-          #
-          # Audio rides along in the same stream rather than in a second one:
-          # a separate feed is a second thing to add in OBS and a sync problem
-          # to solve by hand forever. FLAC because the ask was lossless and it
-          # is -- the null sink hands ffmpeg 48kHz s16 stereo and FLAC stores
-          # those samples exactly, at roughly half the size of the PCM. MPEG-TS
-          # in Matroska, not MPEG-TS: TS has no real FLAC mapping and ffmpeg
-          # falls back to "muxed as a private data stream and may not be
-          # recognized upon reading", which is a silent stream in OBS. Matroska
-          # carries both codecs properly and OBS's Media Source reads it.
-          #
-          # -thread_queue_size 512 on both inputs: the defaults are eight
-          # packets, and x11grab and pulse each block the other while the
-          # encoder is busy, which shows up as dropped frames and drifting
-          # audio.
-          #
-          # aresample async: two independent live sources have no shared clock,
-          # and the pulse monitor delivers packets whose timestamps occasionally
-          # step backwards -- the muxer logged a steady stream of "Non-monotonic
-          # DTS" and clamped each one, which is silently discarded audio time
-          # and shows up as drift over a long stream. This stretches or squeezes
-          # the audio by up to a second to track the video clock instead of
-          # throwing samples away, which is the one correction that stays
-          # inaudible on a soundtrack of beeps and ambience.
-          #
-          # -g 15 keeps an IDR every quarter second at 60fps: a Media Source
-          # that connects mid-stream shows nothing until the next keyframe, and
-          # a long wait on every scene switch looks like a hang.
-          args:
-            - |
-              while true; do
-                ffmpeg -loglevel warning \
-                  -thread_queue_size 512 \
-                  -f x11grab -draw_mouse 0 \
-                    -framerate "${COGBENCH_RAW_FPS:-60}" \
-                    -video_size 1440x1080 -i :99 \
-                  -thread_queue_size 512 \
-                  -f pulse -i cogbench.monitor \
-                  -c:v libx264 -preset ultrafast -tune zerolatency \
-                    -crf "${COGBENCH_RAW_CRF:-12}" \
-                    -pix_fmt "${COGBENCH_RAW_PIXFMT:-yuv420p}" \
-                    -profile:v "${COGBENCH_RAW_PROFILE:-high}" \
-                    -g 15 -bf 0 \
-                  -af "aresample=async=1000:min_hard_comp=0.100:first_pts=0" \
-                  -c:a flac -ar 48000 -ac 2 \
-                  -f matroska -live 1 -flush_packets 1 \
-                  -listen 1 http://0.0.0.0:8091/stream.mkv || true
-                sleep 1
-              done
-          # 60fps. Xvfb has no vsync and Cogmind only redraws when something
-          # changes, so a good share of these are duplicate frames -- but they
-          # cost x264 almost nothing (a skipped macroblock is a few bits) and
-          # they are what makes cursor movement and animations land on OBS's
-          # own 60fps timeline without judder. Measured ~5 Mbit/s at 30fps
-          # lossless, so the bandwidth was never the constraint.
-          env:
-            - { name: COGBENCH_RAW_FPS, value: "60" }
-            - { name: PULSE_SERVER, value: unix:/tmp/pulse/native }
-          ports:
-            - { containerPort: 8091, name: raw, protocol: TCP }
-          resources:
-            requests: { cpu: 300m, memory: 128Mi }
-            # Lossless 4:4:4 at 30fps is the most expensive thing in the pod;
-            # ultrafast keeps it to roughly a core on a static screen, and the
-            # ceiling is there for the frames where the whole map redraws.
-          volumeMounts:
-            - { name: xsock, mountPath: /tmp/.X11-unix, readOnly: true }
-            - { name: pulse, mountPath: /tmp/pulse }
-
-        # A second, deliberately cheap feed beside the lossless one.
-        #
-        # The lossless 60fps stream is ~10 Mbit/s of Matroska, which is fine on
-        # wired LAN and not fine over spotty WiFi -- and Matroska is a fussy
-        # container for live ingest because it has no duration and no index.
+        # The OBS feed. MPEG-TS because it is what every live tool expects;
+        # the lossless Matroska one that used to sit beside it is gone, since
+        # the browser page replaced OBS for watching and a second 60fps capture
+        # of the same screen earns nothing.
         # MPEG-TS is what every live tool expects and AAC is what every decoder
         # has. 60fps costs almost nothing here: the screen is static between
         # frames, so the duplicates compress to a few bits each, and measured
@@ -275,7 +184,7 @@ spec:
         #
         # Both run at once so the choice is a URL in OBS rather than a redeploy.
         - name: lite
-          image: 192.168.1.187:30500/cogbench:20260916-safari
+          image: 192.168.1.187:30500/cogbench:20260917-watchdog
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: { drop: [ALL] }
@@ -301,7 +210,8 @@ spec:
                   -af "aresample=async=1000:min_hard_comp=0.100:first_pts=0" \
                   -c:a aac -b:a 160k -ar 48000 -ac 2 \
                   -f mpegts -muxdelay 0 -flush_packets 1 \
-                  -listen 1 http://0.0.0.0:8092/stream.ts || true
+                  -listen 1 http://0.0.0.0:8092/stream.ts 2>&1 \
+                  | grep -v "not enough frames to estimate rate" || true
                 sleep 1
               done
           env:
@@ -329,7 +239,7 @@ spec:
         # muxers each own their output socket and cannot be tee'd without a
         # remux, and a third x11grab costs less than the machinery to avoid it.
         - name: web
-          image: 192.168.1.187:30500/cogbench:20260916-safari
+          image: 192.168.1.187:30500/cogbench:20260917-watchdog
           command: ["python3", "/opt/cogbench/webstream.py", "serve",
                     "--port", "8094"]
           securityContext:
@@ -339,7 +249,12 @@ spec:
             - { name: DISPLAY, value: ":99" }
             - { name: PULSE_SERVER, value: unix:/tmp/pulse/native }
             - { name: COGBENCH_WEB_FPS, value: "60" }
-            - { name: COGBENCH_WEB_CRF, value: "18" }
+            # Quality settings, spending the node's spare capacity. The
+            # defaults in webstream.py match these; they are repeated here so
+            # the deployed values are visible without reading the code.
+            - { name: COGBENCH_WEB_CRF, value: "14" }
+            - { name: COGBENCH_WEB_PRESET, value: "slow" }
+            - { name: COGBENCH_WEB_ABR, value: "256k" }
           ports:
             - { containerPort: 8094, name: web, protocol: TCP }
           resources:
@@ -349,7 +264,7 @@ spec:
             - { name: pulse, mountPath: /tmp/pulse }
 
         - name: overlay
-          image: 192.168.1.187:30500/cogbench:20260916-safari
+          image: 192.168.1.187:30500/cogbench:20260917-watchdog
           command: ["python3", "/opt/cogbench/stream.py", "serve", "--port", "8080"]
           securityContext:
             allowPrivilegeEscalation: false
@@ -386,7 +301,7 @@ spec:
         - name: pulse
           emptyDir: {}
 ---
-# OBS reaches this over Tailscale as slacker:31720. One origin serves the
+# OBS reaches this over Tailscale as slacker.local:31720. One origin serves the
 # overlay page, the state JSON and the video, so there is a single Browser
 # Source to add and no cross-origin anything.
 apiVersion: v1
@@ -400,6 +315,5 @@ spec:
   selector: { app: cogbench }
   ports:
     - { name: http,  port: 8080, targetPort: 8080, nodePort: 31720 }
-    - { name: raw,   port: 8091, targetPort: 8091, nodePort: 31722 }
     - { name: lite,  port: 8092, targetPort: 8092, nodePort: 31723 }
     - { name: web,   port: 8094, targetPort: 8094, nodePort: 31724 }

@@ -56,7 +56,7 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bot import Bot, STEP          # noqa: E402  BFS, movement, UI clearing
+from bot import Bot          # noqa: E402  BFS, movement, UI clearing
 from cogbench import Statmind      # noqa: E402
 import episode                     # noqa: E402
 import statdump                    # noqa: E402
@@ -327,7 +327,7 @@ GRAMMAR = grammar_for(ACTION_ORDER)
 SYSTEM = """You are playing Cogmind, a roguelike. You are a robot that rebuilds \
 itself from the parts of robots it destroys.
 
-Goal: reach lower depth numbers. Depth -11 is deep, -1 is the surface. Taking an \
+Goal: reach the surface. Depth -11 is deep, -1 is near the surface. Taking an \
 exit (<) moves you one floor up. You win by escaping.
 
 What kills runs: having no weapons, having no propulsion, fighting things that \
@@ -377,10 +377,11 @@ class Chat:
         "properties": {
             "verb": {"type": "string",
                      "enum": ["descend", "explore", "flee", "move",
-                              "fire", "pickup", "wait"]},
+                              "fire", "pickup", "attach", "wait"]},
             "dir": {"type": "string",
                     "enum": ["n", "ne", "e", "se", "s", "sw", "w", "nw"]},
             "n": {"type": "integer", "enum": [1, 2, 4, 8, 12]},
+            "slot": {"type": "integer", "minimum": 0, "maximum": 7},
         },
         "required": ["verb"],
         "additionalProperties": False,
@@ -694,7 +695,9 @@ class Chat:
             if verb in ("pickup",):
                 return verb
             if verb == "fire":
-                return "fire %s" % j.get("dir", "n")
+                return "fire"
+            if verb == "attach":
+                return "attach %s" % j.get("slot", j.get("n", ""))
             if verb == "move":
                 return "move %s %s" % (j.get("dir", "n"), j.get("n", 4))
             return "%s %s" % (verb, j.get("n", 8))
@@ -1132,7 +1135,7 @@ class Agent(Bot):
         # an ordinary map repaint, which draws a thousand map-font cells and no
         # text at all.
         self.screen_cells = text
-        rows = {r: l for r, l in glyphs.render(self.screen, self.gtable)}
+        rows = {r: line for r, line in glyphs.render(self.screen, self.gtable)}
         out = []
         for r in sorted(touched):
             line = re.sub(r"\s{3,}", "  ", rows.get(r, "").strip())
@@ -1369,9 +1372,9 @@ class Agent(Bot):
 
     def screen_text(self):
         """The whole reconstructed screen, for debugging and for panels."""
-        return "\n".join("%3d|%s" % (r, l)
-                          for r, l in glyphs.render(self.screen, self.gtable)
-                          if l.strip())
+        return "\n".join("%3d|%s" % (r, line)
+                          for r, line in glyphs.render(self.screen, self.gtable)
+                          if line.strip())
 
     def render(self, dump, pl):
         o = statdump.observation(dump)
@@ -1428,15 +1431,15 @@ class Agent(Bot):
             # borders, and at 120 characters a line they would push the actual
             # text out of the budget.
             panel = []
-            for l in self.full_screen():
-                l = re.sub(r"[\u2502\u250c\u2510\u2514\u2518\u251c\u2524\u2500\u2588]", " ", l)
-                l = re.sub(r"\s{3,}", "  ", l).strip()
-                if len(re.sub(r"[^A-Za-z]", "", l)) >= 4:
-                    panel.append(l)
+            for line in self.full_screen():
+                line = re.sub(r"[\u2502\u250c\u2510\u2514\u2518\u251c\u2524\u2500\u2588]", " ", line)
+                line = re.sub(r"\s{3,}", "  ", line).strip()
+                if len(re.sub(r"[^A-Za-z]", "", line)) >= 4:
+                    panel.append(line)
             if panel:
                 L.append("nothing has changed for %d decisions. the screen reads:"
                          % self.stuck)
-                L.extend("  " + l[:120] for l in panel[:16])
+                L.extend("  " + line[:120] for line in panel[:16])
         if self.screen_cells > 400:
             # That much redrawing at once is a panel opening or closing, not the
             # map ticking. The agent has no other way to notice that a modal is
@@ -1479,6 +1482,16 @@ class Agent(Bot):
                 time.sleep(2.0)
                 continue
             if parse_action(a):
+                parts = a.split()
+                if parts[0] not in self.available_verbs():
+                    self.invalid += 1
+                    continue
+                if parts[0] == "move" and parts[1] not in self.available_dirs():
+                    self.invalid += 1
+                    continue
+                if parts[0] == "attach" and int(parts[1]) >= self.inventory_size:
+                    self.invalid += 1
+                    continue
                 return a
             self.invalid += 1
         return "explore 8"
@@ -2046,6 +2059,10 @@ class Agent(Bot):
 
     def finish(self, end, start, t0, why):
         out = {
+            "status": ("ended" if end else "budget_exhausted"
+                       if why == "decision budget spent" else "blocked"),
+            "policy": self.policy,
+            "fair_view": not self.cheat,
             "why": why,
             "decisions": self.decisions,
             "steps": self.steps,
@@ -2072,7 +2089,7 @@ def parse_action(s):
     return bool(re.fullmatch(
         r"(descend|explore|flee|wait) (1|2|4|8|12)"
         r"|move (n|ne|e|se|s|sw|w|nw) (1|2|4|8|12)"
-        r"|fire (n|ne|e|se|s|sw|w|nw)|pickup|attach [0-7]", s.strip()))
+        r"|fire(?: (n|ne|e|se|s|sw|w|nw))?|pickup|attach [0-7]", s.strip()))
 
 
 # ------------------------------------------------------------------------ main
@@ -2125,9 +2142,12 @@ def main():
     res = agent.play(max_decisions=a.decisions)
     print(json.dumps(res, indent=1))
     if a.out:
-        with open(a.out, "w") as f:
+        tmp = a.out + ".tmp"
+        with open(tmp, "w") as f:
             json.dump(res, f, indent=1)
+        os.replace(tmp, a.out)
+    return 2 if res["status"] == "blocked" else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)

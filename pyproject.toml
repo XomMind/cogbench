@@ -1,0 +1,25 @@
+# Tooling config only. The harness is a set of scripts run in place, not an
+# installable package, so there is no [project] table and nothing is built.
+
+[tool.black]
+line-length = 88
+
+[tool.ruff]
+line-length = 88
+extend-exclude = ["cog-minder", "k8s/image/harness"]
+
+[tool.ruff.lint]
+# Default rules (pyflakes + pycodestyle errors). The codebase came in at 17
+# findings across 7,600 lines, so the default set is already worth enforcing;
+# widen it deliberately rather than by importing a large preset at once.
+select = ["E", "F"]
+# Black owns line length. It reflows code but deliberately will not split long
+# strings or comments, so E501 would flag lines the formatter has already
+# decided are correct. Enabling both means a permanent argument between them.
+ignore = ["E501"]
+
+[tool.mypy]
+# The harness is untyped and passes cleanly at this setting. Tighten per-module
+# as annotations land; do not turn on strict globally until they do.
+ignore_missing_imports = true
+exclude = "(cog-minder|k8s/image/harness)"

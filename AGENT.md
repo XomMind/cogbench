@@ -1,8 +1,25 @@
-# Playing Cogmind through the cogbench shell
+# Game command guide
 
 You are playing **Cogmind**, a turn-based sci-fi roguelike, through a shell.
-Your goal is to descend from the Scrapyard (depth -10) toward the surface and escape.
+Your goal is to travel from the Scrapyard toward the surface and escape.
 Death is permanent — there is no retry inside a run.
+
+## Connect first
+
+For the Kubernetes worker, run commands from your laptop as `just game COMMAND`:
+
+```sh
+just stop          # stop the agent before taking manual control
+just game look
+just game parts
+just game move ne
+```
+
+For a local game, start the daemon as described in [Setup](SETUP.md), then run
+commands from `harness`. The examples below use that local form: replace
+`./cogbench.py` with `just game` when using the worker.
+
+[Back to the main guide](README.md) · [Watch or set up OBS](OBS.md)
 
 ## How to act
 
@@ -77,8 +94,9 @@ a tenth of a second) but it is a *report*, not a live feed: call it again rather
 than reasoning from an old one.
 
 Coordinates are `(x, y)` with the origin top-left. `x` grows east, `y` grows south.
-The header line gives your position, the map size, and `actionReady`, which is the
-turn counter.
+The header includes your position, map size, and `actionReady`. Do not use
+`actionReady` as elapsed turns; the raw stat dump supplies
+`stats.exploration.turnsPassed`.
 
 ## What matters in Cogmind
 
@@ -90,10 +108,10 @@ turn counter.
   everything else.
 - **Watch `heat`, `energy` and `matter`.** Firing costs energy and generates heat;
   overheating damages you. Matter is the currency for repairs and fabrication.
-- **Fighting is usually the wrong move.** Descending is what scores. Fleeing to the
-  stairs beats winning a fight you did not need. Alert levels rise as you make noise,
+- **Choose fights carefully.** Reaching the next floor is often more useful than fighting. Fleeing to the
+  exits beats winning a fight you did not need. Alert levels rise as you make noise,
   and the garrisons that respond get worse the longer you linger.
-- **`>` is progress.** Step onto stairs to descend.
+- **`>` marks an exit.** Move onto it and use `up` to take it.
 
 ## Known limits of this shell
 
@@ -116,4 +134,4 @@ action.
 ## Reporting
 
 When you stop — death, escape, or budget exhausted — say which depth and map you
-reached, how many turns elapsed (`actionReady`), and what killed you or blocked you.
+reached, how many turns elapsed (from the stat dump), and what killed you or blocked you.
