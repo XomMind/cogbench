@@ -53,9 +53,9 @@ DEFAULT_SPEC = {
     "twitch": "",
     "policy": "model",
     "temperature": 0.7,
-    "supervise": True,        # bring it back by itself when it dies
-    "loop": False,            # and start a NEW episode when one is played out
-    "seed": "",               # per-episode seed; empty = a fresh one each time
+    "supervise": True,  # bring it back by itself when it dies
+    "loop": False,  # and start a NEW episode when one is played out
+    "seed": "",  # per-episode seed; empty = a fresh one each time
     # Set by loop mode just before it ends the container, and read by the next
     # container's entrypoint. Persisting the intent is the only way it can
     # survive the restart that IS the episode boundary.
@@ -123,8 +123,6 @@ def coerce(spec, raw):
     return out
 
 
-
-
 NEXT_SEED = os.environ.get("COGBENCH_NEXT_SEED", "/data/next-seed")
 
 
@@ -176,16 +174,27 @@ def new_episode(seed):
 
 
 def some_seed():
-    return "".join(random.choice(string.ascii_uppercase + string.digits)
-                   for _ in range(8))
+    return "".join(
+        random.choice(string.ascii_uppercase + string.digits) for _ in range(8)
+    )
 
 
 def argv_for(spec):
-    argv = [sys.executable, AGENT, "--statmind", STATMIND,
-            "--policy", spec["policy"],
-            "--decisions", str(spec["decisions"]),
-            "--temperature", str(spec["temperature"]),
-            "--stream", "--out", RESULT]
+    argv = [
+        sys.executable,
+        AGENT,
+        "--statmind",
+        STATMIND,
+        "--policy",
+        spec["policy"],
+        "--decisions",
+        str(spec["decisions"]),
+        "--temperature",
+        str(spec["temperature"]),
+        "--stream",
+        "--out",
+        RESULT,
+    ]
     if spec["model"]:
         argv += ["--model", spec["model"]]
     if spec["twitch"]:
@@ -207,8 +216,8 @@ class Runner:
         self.proc = None
         self.spec = load_spec()
         self.started = 0.0
-        self.stopping = False         # a stop we asked for, not a crash
-        self.last = None              # how the previous run ended
+        self.stopping = False  # a stop we asked for, not a crash
+        self.last = None  # how the previous run ended
         self.revivals = 0
 
     # -- state ------------------------------------------------------------
@@ -247,13 +256,13 @@ class Runner:
             with open(LOG, "rb") as f:
                 try:
                     f.seek(-64 * 1024, os.SEEK_END)
-                    f.readline()      # drop the partial first line
+                    f.readline()  # drop the partial first line
                 except OSError:
-                    pass              # log shorter than the window
+                    pass  # log shorter than the window
                 lines = f.read().decode("utf-8", "replace").splitlines()
         except OSError:
             return []
-        return lines[-max(1, min(400, n)):]
+        return lines[-max(1, min(400, n)) :]
 
     # -- transitions ------------------------------------------------------
     def start(self, spec=None):
@@ -277,18 +286,21 @@ class Runner:
             self.stopping = False
             try:
                 self.proc = subprocess.Popen(
-                    argv_for(self.spec), cwd=HERE,
-                    stdout=log, stderr=subprocess.STDOUT,
+                    argv_for(self.spec),
+                    cwd=HERE,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
                     stdin=subprocess.DEVNULL,
                     # Its own process group, so stopping the agent kills any
                     # child it spawned and never reaches this runner.
-                    start_new_session=True)
+                    start_new_session=True,
+                )
             except OSError as e:
                 log.close()
                 return False, str(e)
             finally:
                 try:
-                    log.close()       # the child holds its own descriptor
+                    log.close()  # the child holds its own descriptor
                 except OSError:
                     pass
             self.started = time.time()
@@ -356,10 +368,19 @@ class Runner:
                 # A clean finish is the agent reaching --decisions; anything
                 # else is a crash or a stop, and the distinction is what the
                 # control page colours.
-                "why": ("stopped" if self.stopping else
-                        result.get("status", "finished") if code == 0 else
-                        "killed (signal %d)" % -code if code < 0 else
-                        "crashed (exit %d)" % code),
+                "why": (
+                    "stopped"
+                    if self.stopping
+                    else (
+                        result.get("status", "finished")
+                        if code == 0
+                        else (
+                            "killed (signal %d)" % -code
+                            if code < 0
+                            else "crashed (exit %d)" % code
+                        )
+                    )
+                ),
                 "at": time.time(),
                 "ran": round(time.time() - self.started, 1),
                 "decisions": self._decisions(),
@@ -372,8 +393,12 @@ class Runner:
         # A failure resumes the same episode. Only an explicit ended result
         # may discard it; exit zero also covers an exhausted decision budget.
         revive = spec.get("supervise") and not asked and code != 0
-        fresh = (spec.get("loop") and not asked and code == 0
-                 and result.get("status") == "ended")
+        fresh = (
+            spec.get("loop")
+            and not asked
+            and code == 0
+            and result.get("status") == "ended"
+        )
         if not (revive or fresh):
             return
         if fresh:
@@ -383,7 +408,9 @@ class Runner:
                 ok, out = new_episode(spec.get("seed") or some_seed())
                 self.last["episode"] = "new episode" if ok else "relaunch failed"
                 if not ok:
-                    self.last["tail"] = (self.last.get("tail") or []) + out.splitlines()[-6:]
+                    self.last["tail"] = (
+                        self.last.get("tail") or []
+                    ) + out.splitlines()[-6:]
             if not ok:
                 return
             # On success this container is on its way out; the next one's
@@ -409,7 +436,7 @@ def supervisor():
         try:
             RUN.reap()
         except Exception:
-            pass                      # a supervisor that dies is worse
+            pass  # a supervisor that dies is worse
         time.sleep(2)
 
 
@@ -472,6 +499,7 @@ def serve(port=PORT):
     class Server(socketserver.ThreadingMixIn, socketserver.TCPServer):
         daemon_threads = True
         allow_reuse_address = True
+
     threading.Thread(target=supervisor, daemon=True).start()
     # Loopback only. Containers in a pod share a network namespace, so the
     # overlay reaches this without it being routable from anywhere else --
@@ -483,7 +511,8 @@ def serve(port=PORT):
 
 def main():
     ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("cmd", choices=["serve"])
     ap.add_argument("--port", type=int, default=PORT)
     a = ap.parse_args()

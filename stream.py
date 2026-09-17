@@ -56,11 +56,11 @@ QUIP = os.path.join(STATE_DIR, "quip.json")
 
 # The live knobs. Anything here can be changed mid-run from control.html.
 DEFAULT_PARAMS = {
-    "cam": False,             # reserve the webcam square
-    "chat_window_min": 10,    # how far back the model is shown chat
-    "chat_limit": 20,         # and at most how many messages
+    "cam": False,  # reserve the webcam square
+    "chat_window_min": 10,  # how far back the model is shown chat
+    "chat_limit": 20,  # and at most how many messages
     "chat_on": True,
-    "model": "",              # empty = whatever the agent was started with
+    "model": "",  # empty = whatever the agent was started with
 }
 
 # The run lifecycle lives in the game container -- that is where the agent
@@ -118,15 +118,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             body = self.rfile.read(n) if n else b""
         try:
             req = urllib.request.Request(
-                RUNNER + self.path, data=body, method=self.command,
-                headers={"Content-Type": "application/json"})
+                RUNNER + self.path,
+                data=body,
+                method=self.command,
+                headers={"Content-Type": "application/json"},
+            )
             with urllib.request.urlopen(req, timeout=30) as r:
                 out, code = r.read(), r.status
         except urllib.error.HTTPError as e:
             out, code = e.read(), e.code
         except Exception as e:
-            out = json.dumps({"error": "runner unreachable: %s: %s"
-                              % (type(e).__name__, e)}).encode()
+            out = json.dumps(
+                {"error": "runner unreachable: %s: %s" % (type(e).__name__, e)}
+            ).encode()
             code = 502
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
@@ -152,34 +156,50 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except (OSError, ValueError):
             return self.jsonout({"error": "no run state yet"}, 409)
         run, perf = st.get("run") or {}, st.get("perf") or {}
-        recent = ", ".join("%s -> %s" % (d.get("action"), d.get("result"))
-                           for d in (st.get("recent") or [])[:4])
+        recent = ", ".join(
+            "%s -> %s" % (d.get("action"), d.get("result"))
+            for d in (st.get("recent") or [])[:4]
+        )
         prompt = (
             "You are the AI playing Cogmind on a live stream. In ONE short "
             "sentence, in character and with some personality, say something "
             "about how it is going right now. No quotes, no preamble.\n\n"
             "Depth %s, turn %s, decision %s. Core %s. Recent: %s"
-            % (run.get("depth"), run.get("turn"), run.get("decisions"),
-               (st.get("res") or {}).get("core_integrity"), recent or "nothing yet"))
+            % (
+                run.get("depth"),
+                run.get("turn"),
+                run.get("decisions"),
+                (st.get("res") or {}).get("core_integrity"),
+                recent or "nothing yet",
+            )
+        )
         model = perf.get("model") or ""
         if not ENDPOINT or not model:
             return self.jsonout({"error": "no endpoint or model to ask"}, 409)
         base = ENDPOINT.rstrip("/")
         if base.endswith("/v1"):
             base = base[:-3]
-        body = json.dumps({
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            # Short and cheap: this runs on the same server the agent is
-            # playing through, and a long generation here is latency stolen
-            # from the run itself.
-            "max_tokens": 60, "temperature": 0.9,
-        }).encode()
+        body = json.dumps(
+            {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                # Short and cheap: this runs on the same server the agent is
+                # playing through, and a long generation here is latency stolen
+                # from the run itself.
+                "max_tokens": 60,
+                "temperature": 0.9,
+            }
+        ).encode()
         try:
             req = urllib.request.Request(
-                base + "/v1/chat/completions", data=body, method="POST",
-                headers={"Content-Type": "application/json",
-                         **({"Authorization": "Bearer " + API_KEY} if API_KEY else {})})
+                base + "/v1/chat/completions",
+                data=body,
+                method="POST",
+                headers={
+                    "Content-Type": "application/json",
+                    **({"Authorization": "Bearer " + API_KEY} if API_KEY else {}),
+                },
+            )
             with urllib.request.urlopen(req, timeout=60) as r:
                 out = json.load(r)
             text = out["choices"][0]["message"]["content"].strip().strip('"')
@@ -225,16 +245,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     base = base[:-3]
                 req = urllib.request.Request(
                     base + "/v1/models",
-                    headers={"Authorization": "Bearer " + API_KEY} if API_KEY else {})
+                    headers={"Authorization": "Bearer " + API_KEY} if API_KEY else {},
+                )
                 with urllib.request.urlopen(req, timeout=15) as r:
                     data = json.load(r)
                 _models["ids"] = [m["id"] for m in data.get("data", [])]
                 _models["at"] = time.time()
             except Exception as e:
                 _models["err"] = "%s: %s" % (type(e).__name__, e)
-        body = json.dumps({"models": _models["ids"],
-                           "error": _models.get("err") if not _models["ids"] else None,
-                           "age": round(time.time() - _models["at"], 1)}).encode()
+        body = json.dumps(
+            {
+                "models": _models["ids"],
+                "error": _models.get("err") if not _models["ids"] else None,
+                "age": round(time.time() - _models["at"], 1),
+            }
+        ).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -309,8 +334,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def mjpeg(self, fps=15):
         self.send_response(200)
-        self.send_header("Content-Type",
-                         "multipart/x-mixed-replace; boundary=frame")
+        self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         last = None
@@ -322,15 +346,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                         with open(FRAME, "rb") as f:
                             jpg = f.read()
                         last = (st.st_mtime, st.st_size)
-                        self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\n"
-                                         b"Content-Length: %d\r\n\r\n" % len(jpg))
+                        self.wfile.write(
+                            b"--frame\r\nContent-Type: image/jpeg\r\n"
+                            b"Content-Length: %d\r\n\r\n" % len(jpg)
+                        )
                         self.wfile.write(jpg)
                         self.wfile.write(b"\r\n")
                 except FileNotFoundError:
                     pass
                 time.sleep(1.0 / fps)
         except (BrokenPipeError, ConnectionResetError):
-            pass          # OBS closed the source; not an error
+            pass  # OBS closed the source; not an error
+
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=DIR, **kw)
 
@@ -362,13 +389,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
     def log_message(self, *a):
-        pass                      # the console belongs to the agent
+        pass  # the console belongs to the agent
 
 
 def serve(port=PORT):
     os.makedirs(STATE_DIR, exist_ok=True)
     if not os.path.exists(STATE):
         publish({"status": "waiting for the agent"})
+
     # Threaded: an MJPEG client holds its connection open forever, and a
     # single-threaded server would then never answer state.json again.
     class Server(socketserver.ThreadingMixIn, socketserver.TCPServer):
@@ -383,14 +411,17 @@ def serve(port=PORT):
         print("state:    %s" % STATE)
         print("control:  http://0.0.0.0:%d/control.html" % port)
         print("runner:   %s (proxied at /run/status)" % RUNNER)
-        print("OBS: Browser Source -> the overlay URL at 1280x720, and "
-              "uncheck 'Shutdown source when not visible'")
+        print(
+            "OBS: Browser Source -> the overlay URL at 1280x720, and "
+            "uncheck 'Shutdown source when not visible'"
+        )
         srv.serve_forever()
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("cmd", choices=["serve"])
     ap.add_argument("--port", type=int, default=PORT)
     a = ap.parse_args()

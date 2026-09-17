@@ -36,15 +36,30 @@ DEFAULT_EXE = (
 ANCHOR = b"\x0a\x14web/scoresheet.proto"
 
 TYPES = {
-    1: "double", 2: "float", 3: "int64", 4: "uint64", 5: "int32",
-    6: "fixed64", 7: "fixed32", 8: "bool", 9: "string", 10: "group",
-    11: "message", 12: "bytes", 13: "uint32", 14: "enum",
-    15: "sfixed32", 16: "sfixed64", 17: "sint32", 18: "sint64",
+    1: "double",
+    2: "float",
+    3: "int64",
+    4: "uint64",
+    5: "int32",
+    6: "fixed64",
+    7: "fixed32",
+    8: "bool",
+    9: "string",
+    10: "group",
+    11: "message",
+    12: "bytes",
+    13: "uint32",
+    14: "enum",
+    15: "sfixed32",
+    16: "sfixed64",
+    17: "sint32",
+    18: "sint64",
 }
 LABELS = {1: "optional", 2: "required", 3: "repeated"}
 
 
 # ---------------------------------------------------------------- wire parsing
+
 
 def varint(buf, i):
     r = s = 0
@@ -67,11 +82,11 @@ def fields(buf):
             val, i = varint(buf, i)
         elif wire == 2:
             ln, i = varint(buf, i)
-            val, i = buf[i:i + ln], i + ln
+            val, i = buf[i : i + ln], i + ln
         elif wire == 5:
-            val, i = int.from_bytes(buf[i:i + 4], "little"), i + 4
+            val, i = int.from_bytes(buf[i : i + 4], "little"), i + 4
         elif wire == 1:
-            val, i = int.from_bytes(buf[i:i + 8], "little"), i + 8
+            val, i = int.from_bytes(buf[i : i + 8], "little"), i + 8
         else:
             raise ValueError("wire type %d (group?) at %d" % (wire, i))
         yield num, val
@@ -119,6 +134,7 @@ def find_blob(data):
 
 
 # ------------------------------------------------------------------ descriptor
+
 
 class Field:
     def __init__(self, buf):
@@ -240,6 +256,7 @@ class File:
 
 # --------------------------------------------------------------- .proto output
 
+
 def emit(f, out):
     w = out.write
     w('syntax = "%s";\n\n' % (f.syntax or "proto2"))
@@ -297,12 +314,13 @@ def emit_msg(m, w, ind, package):
             if entry:
                 k = next(x for x in entry.fields if x.number == 1)
                 v = next(x for x in entry.fields if x.number == 2)
-                w("%s  map<%s, %s> %s = %d;\n"
-                  % (p, k.type_str(), v.type_str(), fd.name, fd.number))
+                w(
+                    "%s  map<%s, %s> %s = %d;\n"
+                    % (p, k.type_str(), v.type_str(), fd.name, fd.number)
+                )
             else:
                 lab = "repeated " if fd.label == 3 else ""
-                w("%s  %s%s %s = %d;\n"
-                  % (p, lab, fd.type_str(), fd.name, fd.number))
+                w("%s  %s%s %s = %d;\n" % (p, lab, fd.type_str(), fd.name, fd.number))
     w("%s}\n\n" % p)
 
 
@@ -312,12 +330,15 @@ def short(type_name):
 
 # ------------------------------------------------------------------------ main
 
+
 def summarise(f, out):
     out.write("file      %s\n" % f.name)
     out.write("package   %s\n" % f.package)
     out.write("syntax    %s\n" % f.syntax)
-    out.write("messages  %d\nenums     %d\nservices  %d\n"
-              % (len(f.messages), len(f.enums), len(f.services)))
+    out.write(
+        "messages  %d\nenums     %d\nservices  %d\n"
+        % (len(f.messages), len(f.enums), len(f.services))
+    )
     out.write("\ntop-level messages (fields):\n")
     for m in f.messages:
         out.write("  %-32s %d\n" % (m.name, len(m.fields)))
@@ -331,17 +352,24 @@ def main():
     ap.add_argument("--exe", default=DEFAULT_EXE)
     ap.add_argument("-o", "--out", help="write .proto here (default stdout)")
     ap.add_argument("--raw", help="also write the raw descriptor blob here")
-    ap.add_argument("--summary", action="store_true",
-                    help="print a schema summary instead of .proto source")
-    ap.add_argument("--verify", action="store_true",
-                    help="cross-check the blob with protoc --decode")
+    ap.add_argument(
+        "--summary",
+        action="store_true",
+        help="print a schema summary instead of .proto source",
+    )
+    ap.add_argument(
+        "--verify",
+        action="store_true",
+        help="cross-check the blob with protoc --decode",
+    )
     a = ap.parse_args()
 
     data = open(a.exe, "rb").read()
     start, end = find_blob(data)
     blob = data[start:end]
-    print("descriptor: file offset 0x%x, %d bytes" % (start, len(blob)),
-          file=sys.stderr)
+    print(
+        "descriptor: file offset 0x%x, %d bytes" % (start, len(blob)), file=sys.stderr
+    )
 
     if a.raw:
         open(a.raw, "wb").write(blob)
@@ -349,19 +377,29 @@ def main():
     if a.verify:
         inc = "/opt/homebrew/opt/protobuf/include"
         if not os.path.isdir(inc):
-            inc = subprocess.run(["brew", "--prefix", "protobuf"],
-                                 capture_output=True, text=True
-                                 ).stdout.strip() + "/include"
+            inc = (
+                subprocess.run(
+                    ["brew", "--prefix", "protobuf"], capture_output=True, text=True
+                ).stdout.strip()
+                + "/include"
+            )
         r = subprocess.run(
-            ["protoc", "-I" + inc,
-             "--decode=google.protobuf.FileDescriptorProto",
-             "google/protobuf/descriptor.proto"],
-            input=blob, capture_output=True)
+            [
+                "protoc",
+                "-I" + inc,
+                "--decode=google.protobuf.FileDescriptorProto",
+                "google/protobuf/descriptor.proto",
+            ],
+            input=blob,
+            capture_output=True,
+        )
         if r.returncode != 0:
-            raise SystemExit("protoc rejected the blob:\n"
-                             + r.stderr.decode()[:2000])
-        print("verify: protoc decoded %d bytes -> %d lines of text"
-              % (len(blob), r.stdout.count(b"\n")), file=sys.stderr)
+            raise SystemExit("protoc rejected the blob:\n" + r.stderr.decode()[:2000])
+        print(
+            "verify: protoc decoded %d bytes -> %d lines of text"
+            % (len(blob), r.stdout.count(b"\n")),
+            file=sys.stderr,
+        )
 
     f = File(blob)
     out = open(a.out, "w") if a.out else sys.stdout

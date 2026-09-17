@@ -58,11 +58,11 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cogbench import Statmind          # noqa: E402
+from cogbench import Statmind  # noqa: E402
 
 BIN = os.environ.get("STATMIND_BIN", "statmind")
-SHEET_COLS = 32                        # every Cogmind font sheet is 32 wide
-F1 = 282                               # toggling a panel forces a full repaint
+SHEET_COLS = 32  # every Cogmind font sheet is 32 wide
+F1 = 282  # toggling a panel forces a full repaint
 
 # SDL 1.2 SDL_Surface, 32-bit: flags, format*, w, h, pitch(u16), pixels, ...
 S_W, S_H, S_PITCH, S_PIXELS = 2, 3, 4, 5
@@ -84,8 +84,13 @@ def _bytes(sm, addr, n):
 
 def surface(sm, ptr):
     v = _words(sm, ptr, 8)
-    return {"ptr": ptr, "w": v[S_W], "h": v[S_H],
-            "pitch": v[S_PITCH] & 0xFFFF, "pixels": v[S_PIXELS]}
+    return {
+        "ptr": ptr,
+        "w": v[S_W],
+        "h": v[S_H],
+        "pitch": v[S_PITCH] & 0xFFFF,
+        "pixels": v[S_PIXELS],
+    }
 
 
 def find_atlases(sm, settle=1.0, nudge=True):
@@ -181,8 +186,12 @@ def classify(sm, ptr):
         return None
     for ch in (cw * 2, cw):
         if s["h"] % ch == 0:
-            s.update(cell=(cw, ch), cols=SHEET_COLS, rows=s["h"] // ch,
-                     kind="text" if ch == cw * 2 else "map")
+            s.update(
+                cell=(cw, ch),
+                cols=SHEET_COLS,
+                rows=s["h"] // ch,
+                kind="text" if ch == cw * 2 else "map",
+            )
             return s
     return None
 
@@ -209,7 +218,7 @@ def find_screen(sm):
     s = surface(sm, ptr)
     if not (0 < s["w"] <= 8192 and 0 < s["h"] <= 8192 and s["pixels"]):
         return None
-    if s["pitch"] < s["w"] * 4:          # we decode 32bpp only
+    if s["pitch"] < s["w"] * 4:  # we decode 32bpp only
         return None
     return s
 
@@ -247,14 +256,16 @@ def read_video(sm, screen, atlas, tbl=None):
         line = []
         for c in range(screen["w"] // cw):
             x0, y0 = c * cw * 4, r * ch
-            cell = b"".join(raw[(y0 + k) * pitch + x0:(y0 + k) * pitch + x0 + cw * 4]
-                            for k in range(ch))
+            cell = b"".join(
+                raw[(y0 + k) * pitch + x0 : (y0 + k) * pitch + x0 + cw * 4]
+                for k in range(ch)
+            )
             # Most of a roguelike screen is one flat colour; skipping those at
             # C speed is what keeps this a couple of seconds rather than ten.
             if cell.count(cell[:4]) * 4 == len(cell):
                 line.append(" ")
                 continue
-            px = [cell[i:i + 4] for i in range(0, len(cell), 4)]
+            px = [cell[i : i + 4] for i in range(0, len(cell), 4)]
             counts = collections.Counter(px)
             hit = " "
             for bg, _ in counts.most_common(3):
@@ -276,7 +287,9 @@ def masks(sm, atlas):
         for c in range(atlas["cols"]):
             bits = bytes(
                 1 if raw[y * atlas["pitch"] + (c * cw + k) * 4 + 3] else 0
-                for y in range(r * ch, (r + 1) * ch) for k in range(cw))
+                for y in range(r * ch, (r + 1) * ch)
+                for k in range(cw)
+            )
             if any(bits):
                 out[r * atlas["cols"] + c] = bits
     return out
@@ -284,8 +297,10 @@ def masks(sm, atlas):
 
 def art(bits, cw):
     """A slot's mask as ASCII, for labelling one by eye."""
-    return ["".join("#" if b else "." for b in bits[i:i + cw])
-            for i in range(0, len(bits), cw)]
+    return [
+        "".join("#" if b else "." for b in bits[i : i + cw])
+        for i in range(0, len(bits), cw)
+    ]
 
 
 def table():
@@ -301,8 +316,7 @@ def table():
     for i in range(26):
         t[64 + i] = chr(ord("A") + i)
         t[96 + i] = chr(ord("a") + i)
-    t.update({128: "│", 129: "─", 135: "├",
-              136: "┌", 137: "┐", 138: "┘"})
+    t.update({128: "│", 129: "─", 135: "├", 136: "┌", 137: "┐", 138: "┘"})
     return t
 
 
@@ -329,8 +343,9 @@ def capture(sm, atlases, repaint=True, wait=1.5):
     grid = {}
     for r in d["draws"]:
         if r["kind"] == 0 and r["arg"] == atlases["text"]["ptr"]:
-            grid[(r["dy"] // ch, r["dx"] // cw)] = (r["sy"] // ch) * SHEET_COLS \
-                                                   + r["sx"] // cw
+            grid[(r["dy"] // ch, r["dx"] // cw)] = (r["sy"] // ch) * SHEET_COLS + r[
+                "sx"
+            ] // cw
     return grid, d["count"]
 
 
@@ -338,20 +353,26 @@ def render(grid, tbl):
     lines = []
     for row in sorted({p[0] for p in grid}):
         cols = [c for (y, c) in grid if y == row]
-        line = "".join(tbl.get(grid[(row, c)], "¤") if (row, c) in grid else " "
-                       for c in range(max(cols) + 1))
+        line = "".join(
+            tbl.get(grid[(row, c)], "¤") if (row, c) in grid else " "
+            for c in range(max(cols) + 1)
+        )
         lines.append((row, line.rstrip()))
     return lines
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("cmd", choices=["screen", "read", "sheet", "art", "atlases"])
     ap.add_argument("slots", nargs="*", type=int, help="for `art`")
     ap.add_argument("--statmind", default=BIN)
-    ap.add_argument("--no-repaint", action="store_true",
-                    help="read only what changed, instead of forcing a full redraw")
+    ap.add_argument(
+        "--no-repaint",
+        action="store_true",
+        help="read only what changed, instead of forcing a full redraw",
+    )
     a = ap.parse_args()
 
     sm = Statmind(a.statmind, quiet=True)
@@ -361,9 +382,19 @@ def main():
 
     if a.cmd == "atlases":
         for k, s in atlases.items():
-            print("%-5s 0x%08X %dx%d cell %dx%d  %dx%d slots"
-                  % (k, s["ptr"], s["w"], s["h"], s["cell"][0], s["cell"][1],
-                     s["cols"], s["rows"]))
+            print(
+                "%-5s 0x%08X %dx%d cell %dx%d  %dx%d slots"
+                % (
+                    k,
+                    s["ptr"],
+                    s["w"],
+                    s["h"],
+                    s["cell"][0],
+                    s["cell"][1],
+                    s["cols"],
+                    s["rows"],
+                )
+            )
         return
 
     if a.cmd in ("sheet", "art"):
@@ -372,14 +403,18 @@ def main():
         if a.cmd == "art":
             for s in a.slots or sorted(m):
                 print("slot %d  %r" % (s, table().get(s, "?")))
-                print("\n".join("  " + line for line in art(m[s], cw)) if s in m
-                      else "  (empty)")
+                print(
+                    "\n".join("  " + line for line in art(m[s], cw))
+                    if s in m
+                    else "  (empty)"
+                )
             return
         tbl = table()
         for r in range(atlases["text"]["rows"]):
-            row = "".join(tbl.get(r * SHEET_COLS + c, "¤")
-                          if (r * SHEET_COLS + c) in m else " "
-                          for c in range(SHEET_COLS))
+            row = "".join(
+                tbl.get(r * SHEET_COLS + c, "¤") if (r * SHEET_COLS + c) in m else " "
+                for c in range(SHEET_COLS)
+            )
             print("row %d |%s|" % (r, row))
         print("\n%d slots in use; ¤ = drawn but unlabelled" % len(m))
         return
@@ -390,8 +425,10 @@ def main():
             raise SystemExit("no video surface at 0x%08X" % SCREEN_SURFACE)
         t = time.time()
         lines = read_video(sm, scr, atlases["text"])
-        print("%dx%d screen, %dx%d cells, %.1fs\n"
-              % (scr["w"], scr["h"], *atlases["text"]["cell"], time.time() - t))
+        print(
+            "%dx%d screen, %dx%d cells, %.1fs\n"
+            % (scr["w"], scr["h"], *atlases["text"]["cell"], time.time() - t)
+        )
         for i, line in enumerate(lines):
             if line.strip():
                 print("%3d|%s" % (i, line))

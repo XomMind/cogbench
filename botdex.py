@@ -35,8 +35,9 @@ import json
 import os
 import re
 
-COG_MINDER = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                          "cog-minder", "src", "json")
+COG_MINDER = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "cog-minder", "src", "json"
+)
 
 
 class Botdex:
@@ -69,12 +70,14 @@ class Botdex:
         b = self.bots.get(name)
         if not b:
             return None
+
         def num(k, default=0):
             v = b.get(k, default)
             try:
                 return int(str(v).split("~")[0])
             except (TypeError, ValueError):
                 return default
+
         return {
             "name": name,
             "class": b.get("Class"),
@@ -97,9 +100,10 @@ class Botdex:
 
 if __name__ == "__main__":
     import sys
+
     dex = Botdex()
     print("loaded %d bots" % len(dex))
-    for n in (sys.argv[1:] or ["G-34 Mercenary", "R-06 Scavenger", "K-01 Serf"]):
+    for n in sys.argv[1:] or ["G-34 Mercenary", "R-06 Scavenger", "K-01 Serf"]:
         s = dex.stats(n)
         print("\n%s" % n)
         if not s:

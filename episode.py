@@ -60,20 +60,26 @@ WINE = os.path.join(SHARED, "wine", "bin", "wine")
 
 # The player's own profile, and the isolated one episodes use.
 PLAYER_PROFILE = os.path.expanduser("~/Documents/Cogmind")
-PROFILE = os.path.expanduser(os.environ.get("COGBENCH_PROFILE",
-                                            "~/Documents/Cogmind-bench"))
+PROFILE = os.path.expanduser(
+    os.environ.get("COGBENCH_PROFILE", "~/Documents/Cogmind-bench")
+)
+
 
 def _p(profile=None):
     return os.path.expanduser(profile or PROFILE)
 
+
 def options_path(profile=None):
     return os.path.join(_p(profile), "user", "options.cfg")
+
 
 def scorehist_path(profile=None):
     return os.path.join(_p(profile), "user", "scorehistory.txt")
 
+
 def scores_path(profile=None):
     return os.path.join(_p(profile), "scores")
+
 
 OPTIONS = options_path()
 SCOREHIST = scorehist_path()
@@ -85,19 +91,39 @@ STATMIND = os.environ.get(
 # scorehistory.txt column header, from the binary:
 #   Version Date Score Location P P U W Max Avg L 1 2 3 4 5 Maps Lore Gallery Achiev Mode Seed
 SCOREHIST_FIELDS = [
-    "version", "date", "score", "location",
-    "p1", "p2", "u", "w", "max", "avg", "l",
-    "c1", "c2", "c3", "c4", "c5",
-    "maps", "lore", "gallery", "achiev", "mode", "seed",
+    "version",
+    "date",
+    "score",
+    "location",
+    "p1",
+    "p2",
+    "u",
+    "w",
+    "max",
+    "avg",
+    "l",
+    "c1",
+    "c2",
+    "c3",
+    "c4",
+    "c5",
+    "maps",
+    "lore",
+    "gallery",
+    "achiev",
+    "mode",
+    "seed",
 ]
 
 
 # ---------------------------------------------------------------- process
 
+
 def game_pids():
     """PIDs of the running Cogmind, empty if it is not up."""
-    out = subprocess.run(["pgrep", "-f", "COGMIND.exe"],
-                         capture_output=True, text=True).stdout.split()
+    out = subprocess.run(
+        ["pgrep", "-f", "COGMIND.exe"], capture_output=True, text=True
+    ).stdout.split()
     return [int(p) for p in out if p.isdigit()]
 
 
@@ -120,6 +146,7 @@ def quit_game(timeout=20):
 
 
 # ---------------------------------------------------------------- seeds
+
 
 def read_seed(profile=None):
     path = options_path(profile)
@@ -155,7 +182,9 @@ def set_seed(seed, profile=None):
     with open(path, encoding="utf-8", errors="replace") as f:
         text = f.read()
     if re.search(r'^worldSeed="[^"]*"', text, re.M):
-        text = re.sub(r'^worldSeed="[^"]*"', f'worldSeed="{seed}"', text, count=1, flags=re.M)
+        text = re.sub(
+            r'^worldSeed="[^"]*"', f'worldSeed="{seed}"', text, count=1, flags=re.M
+        )
     else:
         text = text.rstrip("\n") + f'\nworldSeed="{seed}"\n'
     with open(path, "w", encoding="utf-8") as f:
@@ -178,15 +207,27 @@ def read_difficulty(profile=None):
 
 # ---------------------------------------------------------------- statmind
 
+
 def mcp(calls, timeout=300):
     """Run a list of (name, args) tool calls in one statmind session."""
     reqs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}]
     for i, (name, args) in enumerate(calls):
-        reqs.append({"jsonrpc": "2.0", "id": 10 + i, "method": "tools/call",
-                     "params": {"name": name, "arguments": args or {}}})
+        reqs.append(
+            {
+                "jsonrpc": "2.0",
+                "id": 10 + i,
+                "method": "tools/call",
+                "params": {"name": name, "arguments": args or {}},
+            }
+        )
     payload = "\n".join(json.dumps(r) for r in reqs) + "\n"
-    p = subprocess.run([STATMIND, "--mcp"], input=payload,
-                       capture_output=True, text=True, timeout=timeout)
+    p = subprocess.run(
+        [STATMIND, "--mcp"],
+        input=payload,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
     out = {}
     for line in p.stdout.splitlines():
         try:
@@ -215,7 +256,11 @@ def wait_ready(timeout=120):
         if is_running():
             r = mcp([("luigi_raw", {})], timeout=90)
             v = r.get("luigi_raw")
-            if isinstance(v, dict) and v.get("magic1_ok") and (v.get("map_width") or 0) > 0:
+            if (
+                isinstance(v, dict)
+                and v.get("magic1_ok")
+                and (v.get("map_width") or 0) > 0
+            ):
                 return v
         time.sleep(2)
     return None
@@ -318,22 +363,33 @@ def launch(seed=None, wait=True, profile=None, fresh=True):
     env = dict(os.environ)
     env["WINEPREFIX"] = os.path.join(SHARED, "prefix")
     env.setdefault("WINEDEBUG", "-all")
-    env["DYLD_FALLBACK_LIBRARY_PATH"] = ":".join([
-        os.path.join(APP_CONTENTS, "Frameworks"),
-        os.path.join(SHARED, "wine", "lib"),
-        "/usr/local/lib", "/usr/lib",
-    ])
+    env["DYLD_FALLBACK_LIBRARY_PATH"] = ":".join(
+        [
+            os.path.join(APP_CONTENTS, "Frameworks"),
+            os.path.join(SHARED, "wine", "lib"),
+            "/usr/local/lib",
+            "/usr/lib",
+        ]
+    )
     log = open(os.environ.get("COGBENCH_WINE_LOG", "/tmp/cogbench-wine.log"), "wb")
     subprocess.Popen(
-        [WINE, r"C:\COGMIND (Beta 17.1)\COGMIND.exe",
-         "-luigiAi", f"-customFilePath:{win_profile}"],
-        cwd=GAME_DIR, env=env, stdout=log, stderr=subprocess.STDOUT,
+        [
+            WINE,
+            r"C:\COGMIND (Beta 17.1)\COGMIND.exe",
+            "-luigiAi",
+            f"-customFilePath:{win_profile}",
+        ],
+        cwd=GAME_DIR,
+        env=env,
+        stdout=log,
+        stderr=subprocess.STDOUT,
         start_new_session=True,
     )
     return wait_ready() if wait else None
 
 
 # ---------------------------------------------------------------- run end
+
 
 def scorehist_lines(profile=None):
     """Completed-run rows of scorehistory.txt.
@@ -378,22 +434,22 @@ def parse_scorehist_line(line):
     rec = {"raw": line}
     if len(parts) < 6:
         return rec
-    off = 2 if parts[0].lower() == "beta" else 1   # "Beta 16", "Beta 11.1"
+    off = 2 if parts[0].lower() == "beta" else 1  # "Beta 16", "Beta 11.1"
     rec["version"] = " ".join(parts[:off])
     # Right-anchored: Mode and Seed are always the final two columns.
     rec["mode"] = parts[-2]
     rec["seed"] = parts[-1]
 
     mid = parts[off:-2]
-    middle = SCOREHIST_FIELDS[1:-2]          # date .. achiev, 19 columns
+    middle = SCOREHIST_FIELDS[1:-2]  # date .. achiev, 19 columns
     extra = len(mid) - len(middle)
     if extra > 0:
         # Locations are sometimes multi-word ("Frmr TC4", "Tau Ceti"), which
         # shifts everything after them. Absorb the surplus tokens into it.
         loc_at = middle.index("location")
         head = mid[:loc_at]
-        loc = " ".join(mid[loc_at:loc_at + 1 + extra])
-        tail = mid[loc_at + 1 + extra:]
+        loc = " ".join(mid[loc_at : loc_at + 1 + extra])
+        tail = mid[loc_at + 1 + extra :]
         mid = head + [loc] + tail
     # Never let the positional pass clobber the right-anchored fields.
     for name, val in zip(middle, mid):
@@ -401,7 +457,7 @@ def parse_scorehist_line(line):
     try:
         rec["score"] = int(rec.get("score", ""))
     except (TypeError, ValueError):
-        rec["score"] = None   # not a data row, or an unexpected column layout
+        rec["score"] = None  # not a data row, or an unexpected column layout
     return rec
 
 
@@ -438,8 +494,10 @@ def read_scoresheet(path):
         "win": bool(dig("header", "win", default=False)),
         "score": dig("performance", "totalScore"),
         "maps_visited": len(route),
-        "route": [(e.get("location", {}).get("depth"),
-                   e.get("location", {}).get("map")) for e in route],
+        "route": [
+            (e.get("location", {}).get("depth"), e.get("location", {}).get("map"))
+            for e in route
+        ],
         # Cogmind depths are negative and you *ascend* toward the surface, so
         # progress is the MAXIMUM (least negative) depth reached -- calling the
         # minimum "deepest" reads as progress and is exactly backwards.
@@ -479,18 +537,22 @@ class RunWatcher:
         """Return a result dict once the run has ended, else None."""
         lines = scorehist_lines(self.profile)
         if len(lines) > self.n0:
-            new = lines[self.n0:]
+            new = lines[self.n0 :]
             rec = parse_scorehist_line(new[-1])
-            rec["new_score_files"] = sorted(scores_dir_files(self.profile) - self.files0)
+            rec["new_score_files"] = sorted(
+                scores_dir_files(self.profile) - self.files0
+            )
             rec["source"] = "scorehistory"
             return rec
         files = scores_dir_files(self.profile) - self.files0
         if files:
             return {"source": "scores_dir", "new_score_files": sorted(files)}
         if not is_running():
-            return {"source": "process_exit",
-                    "note": "the game exited without writing a score row; "
-                            "quit before dying, or an ending with no scoresheet"}
+            return {
+                "source": "process_exit",
+                "note": "the game exited without writing a score row; "
+                "quit before dying, or an ending with no scoresheet",
+            }
         return None
 
     def wait(self, timeout=600, interval=2.0, on_tick=None):
@@ -510,11 +572,15 @@ def alive_check(integrity_hint=None, matter_hint=None):
     needs the stat block, which is heap-resident and located by value."""
     calls = [("player", {})]
     if integrity_hint is not None and matter_hint is not None:
-        calls.append(("find_stats", {"integrity": integrity_hint, "matter": matter_hint}))
+        calls.append(
+            ("find_stats", {"integrity": integrity_hint, "matter": matter_hint})
+        )
     r = mcp(calls)
     pl = r.get("player") or {}
-    out = {"player_plausible": bool(pl.get("plausible")),
-           "player": {k: pl.get(k) for k in ("x", "y", "handle", "entity_name")}}
+    out = {
+        "player_plausible": bool(pl.get("plausible")),
+        "player": {k: pl.get(k) for k in ("x", "y", "handle", "entity_name")},
+    }
     st = r.get("find_stats")
     if isinstance(st, dict) and st.get("stats"):
         s = st["stats"][0]
@@ -525,16 +591,22 @@ def alive_check(integrity_hint=None, matter_hint=None):
 
 # ---------------------------------------------------------------- cli
 
+
 def main():
     ap = argparse.ArgumentParser(description="Cogbench episode lifecycle")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("status", help="game state, seed, difficulty, last run")
     p = sub.add_parser("seed", help="set the seed for the next game")
     p.add_argument("value")
-    p = sub.add_parser("launch", help="start a fresh seeded run in the isolated profile")
+    p = sub.add_parser(
+        "launch", help="start a fresh seeded run in the isolated profile"
+    )
     p.add_argument("--seed")
-    p.add_argument("--resume", action="store_true",
-                   help="do not clear saves (resume instead of starting fresh)")
+    p.add_argument(
+        "--resume",
+        action="store_true",
+        help="do not clear saves (resume instead of starting fresh)",
+    )
     sub.add_parser("fingerprint", help="hash the current map, to check determinism")
     p = sub.add_parser("init", help="create/reset the isolated profile")
     p.add_argument("--seed", default="0")
@@ -554,18 +626,30 @@ def main():
 
     if a.cmd == "fingerprint":
         import hashlib
+
         r = mcp([("luigi_raw", {}), ("player", {}), ("get_map", {})])
         m = r.get("get_map")
         if not isinstance(m, dict) or "cells" not in m:
-            print("no map:", str(m)[:160]); return 1
-        lr = r.get("luigi_raw") or {}; pl = r.get("player") or {}
+            print("no map:", str(m)[:160])
+            return 1
+        lr = r.get("luigi_raw") or {}
+        pl = r.get("player") or {}
         cells = sorted((c["x"], c["y"], c["cell_id"]) for c in m["cells"])
-        print(json.dumps({
-            "seed": read_seed(), "w": m["width"], "h": m["height"],
-            "depth": lr.get("location_depth"), "map_type": lr.get("location_map"),
-            "player": [pl.get("x"), pl.get("y")],
-            "fingerprint": hashlib.sha256(repr(cells).encode()).hexdigest()[:16],
-        }))
+        print(
+            json.dumps(
+                {
+                    "seed": read_seed(),
+                    "w": m["width"],
+                    "h": m["height"],
+                    "depth": lr.get("location_depth"),
+                    "map_type": lr.get("location_map"),
+                    "player": [pl.get("x"), pl.get("y")],
+                    "fingerprint": hashlib.sha256(repr(cells).encode()).hexdigest()[
+                        :16
+                    ],
+                }
+            )
+        )
         return 0
 
     if a.cmd == "status":
@@ -573,19 +657,25 @@ def main():
         print(f"running        {is_running()}  pids={game_pids()}")
         print(f"seed           {read_seed()!r}")
         d = read_difficulty()
-        print(f"difficulty     {d} ({ {0:'Rogue',1:'Adventurer',2:'Explorer'}.get(d,'?') })")
+        print(
+            f"difficulty     {d} ({ {0:'Rogue',1:'Adventurer',2:'Explorer'}.get(d,'?') })"
+        )
         print(f"score rows     {len(scorehist_lines())}")
         print(f"scores/ files  {len(scores_dir_files())}")
         if is_running():
             v = mcp([("luigi_raw", {})]).get("luigi_raw", {})
             if isinstance(v, dict) and "_error" not in v:
-                print(f"in-game        {v.get('map_width')}x{v.get('map_height')} "
-                      f"depth={v.get('location_depth')} map_type={v.get('location_map')}")
+                print(
+                    f"in-game        {v.get('map_width')}x{v.get('map_height')} "
+                    f"depth={v.get('location_depth')} map_type={v.get('location_map')}"
+                )
         rows = scorehist_lines()
         if rows:
             r = parse_scorehist_line(rows[-1])
-            print(f"last run       score={r.get('score')} loc={r.get('location')} "
-                  f"mode={r.get('mode')} seed={r.get('seed')}")
+            print(
+                f"last run       score={r.get('score')} loc={r.get('location')} "
+                f"mode={r.get('mode')} seed={r.get('seed')}"
+            )
         return 0
 
     if a.cmd == "seed":
@@ -599,18 +689,21 @@ def main():
     if a.cmd == "launch":
         v = launch(seed=a.seed, fresh=not a.resume)
         if v is None:
-            print("launched but LuigiAI never populated a map "
-                  "(still at the menu or the opening dialogue?)")
+            print(
+                "launched but LuigiAI never populated a map "
+                "(still at the menu or the opening dialogue?)"
+            )
             return 1
-        print(f"ready: {v['map_width']}x{v['map_height']} depth={v['location_depth']} "
-              f"seed={read_seed()!r}")
+        print(
+            f"ready: {v['map_width']}x{v['map_height']} depth={v['location_depth']} "
+            f"seed={read_seed()!r}"
+        )
         return 0
 
     if a.cmd == "watch":
         w = RunWatcher()
         print(f"watching (baseline {w.n0} score rows, {len(w.files0)} score files)...")
-        r = w.wait(timeout=a.timeout,
-                   on_tick=lambda: print(".", end="", flush=True))
+        r = w.wait(timeout=a.timeout, on_tick=lambda: print(".", end="", flush=True))
         print()
         print(json.dumps(r, indent=1) if r else "timed out; run still going")
         return 0 if r else 1
@@ -618,7 +711,8 @@ def main():
     if a.cmd == "scoresheet":
         r = latest_scoresheet()
         if not r:
-            print("no scoresheet in", scores_path()); return 1
+            print("no scoresheet in", scores_path())
+            return 1
         print(json.dumps(r, indent=1))
         return 0
 
@@ -627,9 +721,11 @@ def main():
         print(f"{len(rows)} completed runs")
         for line in rows[-10:]:
             r = parse_scorehist_line(line)
-            print(f"  {r.get('version','?'):8} score={str(r.get('score')):>7} "
-                  f"loc={str(r.get('location')):9} mode={str(r.get('mode')):4} "
-                  f"seed={r.get('seed')}")
+            print(
+                f"  {r.get('version','?'):8} score={str(r.get('score')):>7} "
+                f"loc={str(r.get('location')):9} mode={str(r.get('mode')):4} "
+                f"seed={r.get('seed')}"
+            )
         return 0
 
 

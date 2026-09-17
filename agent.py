@@ -56,35 +56,41 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bot import Bot          # noqa: E402  BFS, movement, UI clearing
-from cogbench import Statmind      # noqa: E402
-import episode                     # noqa: E402
-import statdump                    # noqa: E402
-from botdex import Botdex          # noqa: E402
-import itemdex                     # noqa: E402
-import hackdex                     # noqa: E402
-import tracemodel                  # noqa: E402
-import glyphs                      # noqa: E402
-import stream                      # noqa: E402
-import twitch                      # noqa: E402
+from bot import Bot  # noqa: E402  BFS, movement, UI clearing
+from cogbench import Statmind  # noqa: E402
+import episode  # noqa: E402
+import statdump  # noqa: E402
+from botdex import Botdex  # noqa: E402
+import itemdex  # noqa: E402
+import hackdex  # noqa: E402
+import tracemodel  # noqa: E402
+import glyphs  # noqa: E402
+import stream  # noqa: E402
+import twitch  # noqa: E402
 
 DIRS = {
-    "n": (0, -1), "ne": (1, -1), "e": (1, 0), "se": (1, 1),
-    "s": (0, 1), "sw": (-1, 1), "w": (-1, 0), "nw": (-1, -1),
+    "n": (0, -1),
+    "ne": (1, -1),
+    "e": (1, 0),
+    "se": (1, 1),
+    "s": (0, 1),
+    "sw": (-1, 1),
+    "w": (-1, 0),
+    "nw": (-1, -1),
 }
 STEP_CHOICES = ("1", "2", "4", "8", "12")
 
 # Real keysyms, from actions.json rather than guessed.
-K_FIRE = 102        # CMD_BS_DEFAULT_FIRE and CMD_BS_TARGETING_FIRE are both 'f'
-K_GET_ATTACH = 97   # 'a' -- get *and* attach, repeating if slots are full
-K_WAIT = 261        # KP5
-K_ASCEND = 60       # '<'
-K_TAB = 9           # CMD_BS_TARGETING_NEXT_TARGET
+K_FIRE = 102  # CMD_BS_DEFAULT_FIRE and CMD_BS_TARGETING_FIRE are both 'f'
+K_GET_ATTACH = 97  # 'a' -- get *and* attach, repeating if slots are full
+K_WAIT = 261  # KP5
+K_ASCEND = 60  # '<'
+K_TAB = 9  # CMD_BS_TARGETING_NEXT_TARGET
 K_TARGET_CANCEL = 120  # 'x' -- CMD_BS_TARGETING_CANCEL
-K_MANUAL_HACK = 122    # 'z' -- [Manual Command] in the hacking UI
-K_HACK_CLOSE = 27      # ESCAPE -- CMD_HACK_CLOSE, the bail-out
+K_MANUAL_HACK = 122  # 'z' -- [Manual Command] in the hacking UI
+K_HACK_CLOSE = 27  # ESCAPE -- CMD_HACK_CLOSE, the bail-out
 
-# There is no trace budget constant, deliberately. Partial trace is free -- 
+# There is no trace budget constant, deliberately. Partial trace is free --
 # there is no penalty for sitting at 90% -- and only a *full* trace is severe.
 # So the question is never "am I under some threshold", it is "could one more
 # attempt cross 100", and the per-attempt increment is unpublished. tracemodel
@@ -157,7 +163,10 @@ class FairView:
                 # `@` covers whatever the player is standing on, so letting it
                 # overwrite the accumulated glyph would erase the one fact
                 # "should I pick this up?" depends on. Remember the terrain.
-                if ch == GLYPH_PLAYER and self.world.get(p, " ") not in (" ", GLYPH_PLAYER):
+                if ch == GLYPH_PLAYER and self.world.get(p, " ") not in (
+                    " ",
+                    GLYPH_PLAYER,
+                ):
                     continue
                 self.world[p] = ch
 
@@ -166,7 +175,7 @@ class FairView:
         # "Unknown" is now everything adjacent to known ground that has never
         # been seen, rather than everything outside the current window.
         self.unknown = set()
-        for (x, y) in self.passable:
+        for x, y in self.passable:
             for dx, dy in DIRS.values():
                 q = (x + dx, y + dy)
                 if q not in self.world:
@@ -214,13 +223,12 @@ class FairView:
         """
         px, py = self.player
         out = []
-        for (x, y) in self.passable:
+        for x, y in self.passable:
             for dx, dy in DIRS.values():
                 if (x + dx, y + dy) in self.unknown:
                     out.append((x, y))
                     break
-        far = [p for p in out
-               if max(abs(p[0] - px), abs(p[1] - py)) >= min_dist]
+        far = [p for p in out if max(abs(p[0] - px), abs(p[1] - py)) >= min_dist]
         return far or out
 
     def crop(self, half=6):
@@ -282,10 +290,18 @@ def bearing(frm, to):
 # honour should not be offerable at all -- see available_verbs(). Constraining
 # the grammar beats explaining in the prompt: a model that cannot emit `fire`
 # cannot spend twelve decisions firing at a wall, whatever it believes.
-ACTION_ORDER = ["descend", "explore", "pickup", "attach", "fire", "flee",
-                "move", "wait"]
+ACTION_ORDER = [
+    "descend",
+    "explore",
+    "pickup",
+    "attach",
+    "fire",
+    "flee",
+    "move",
+    "wait",
+]
 
-GRAMMAR_RULES = r'''
+GRAMMAR_RULES = r"""
 descend ::= "descend " steps
 explore ::= "explore " steps
 flee    ::= "flee " steps
@@ -296,7 +312,7 @@ pickup  ::= "pickup"
 wait    ::= "wait " steps
 dir     ::= "nw" | "ne" | "sw" | "se" | "n" | "e" | "s" | "w"
 steps   ::= "1" | "2" | "4" | "8" | "12"
-'''
+"""
 
 
 def grammar_for(verbs, dirs=None):
@@ -316,9 +332,11 @@ def grammar_for(verbs, dirs=None):
         # Longest first: GBNF alternation is ordered, so "n" before "nw" would
         # match the prefix and leave a stray "w".
         ordered = sorted(dirs, key=lambda d: (-len(d), d))
-        rules = re.sub(r"(?m)^dir     ::=.*$",
-                       "dir     ::= " + " | ".join('"%s"' % d for d in ordered),
-                       rules)
+        rules = re.sub(
+            r"(?m)^dir     ::=.*$",
+            "dir     ::= " + " | ".join('"%s"' % d for d in ordered),
+            rules,
+        )
     return "root    ::= action\naction  ::= %s\n%s" % (" | ".join(alts), rules)
 
 
@@ -375,11 +393,23 @@ class Chat:
     SCHEMA = {
         "type": "object",
         "properties": {
-            "verb": {"type": "string",
-                     "enum": ["descend", "explore", "flee", "move",
-                              "fire", "pickup", "attach", "wait"]},
-            "dir": {"type": "string",
-                    "enum": ["n", "ne", "e", "se", "s", "sw", "w", "nw"]},
+            "verb": {
+                "type": "string",
+                "enum": [
+                    "descend",
+                    "explore",
+                    "flee",
+                    "move",
+                    "fire",
+                    "pickup",
+                    "attach",
+                    "wait",
+                ],
+            },
+            "dir": {
+                "type": "string",
+                "enum": ["n", "ne", "e", "se", "s", "sw", "w", "nw"],
+            },
             "n": {"type": "integer", "enum": [1, 2, 4, 8, 12]},
             "slot": {"type": "integer", "minimum": 0, "maximum": 7},
         },
@@ -387,8 +417,7 @@ class Chat:
         "additionalProperties": False,
     }
 
-    def __init__(self, url, model=None, temperature=0.7, timeout=180,
-                 api_key=None):
+    def __init__(self, url, model=None, temperature=0.7, timeout=180, api_key=None):
         # Accept the base URL with or without the /v1 suffix: a remote endpoint
         # is usually handed out as ".../v1/", and appending our own /v1 to that
         # gives a 404 that looks like the server being down.
@@ -431,8 +460,10 @@ class Chat:
         for attempt in range(tries):
             try:
                 req = urllib.request.Request(
-                    self.url + path, data=json.dumps(payload).encode(),
-                    headers=self._headers())
+                    self.url + path,
+                    data=json.dumps(payload).encode(),
+                    headers=self._headers(),
+                )
                 with urllib.request.urlopen(req, timeout=self.timeout) as r:
                     return json.load(r)
             except urllib.error.HTTPError:
@@ -444,15 +475,22 @@ class Chat:
 
     def health(self):
         try:
-            req = urllib.request.Request(self.url + "/v1/models",
-                                         headers=self._headers())
+            req = urllib.request.Request(
+                self.url + "/v1/models", headers=self._headers()
+            )
             with urllib.request.urlopen(req, timeout=30) as r:
                 served = json.load(r).get("data", [])
             ids = [m["id"] for m in served]
         except urllib.error.HTTPError as e:
-            raise SystemExit("%s rejected the request: %s %s%s"
-                             % (self.url, e.code, e.reason,
-                                "" if self.api_key else " (no API key given)"))
+            raise SystemExit(
+                "%s rejected the request: %s %s%s"
+                % (
+                    self.url,
+                    e.code,
+                    e.reason,
+                    "" if self.api_key else " (no API key given)",
+                )
+            )
         except Exception as e:
             raise SystemExit("no OpenAI-compatible server at %s (%s)" % (self.url, e))
         if not ids:
@@ -465,10 +503,14 @@ class Chat:
             # ambiguous one rather than silently picking.
             near = [i for i in ids if self.model.lower() in i.lower()]
             if len(near) != 1:
-                raise SystemExit("model %r %s. available:\n  %s"
-                                 % (self.model,
-                                    "is ambiguous" if near else "not served",
-                                    "\n  ".join(ids)))
+                raise SystemExit(
+                    "model %r %s. available:\n  %s"
+                    % (
+                        self.model,
+                        "is ambiguous" if near else "not served",
+                        "\n  ".join(ids),
+                    )
+                )
             self.model = near[0]
 
         # The context window is not in the chat response, but llama.cpp's model
@@ -494,14 +536,25 @@ class Chat:
         allowed = [v for v in ACTION_ORDER if v in verbs]
         note = ""
         if len(allowed) < len(ACTION_ORDER):
-            note = ("\n\nRight now only these are possible: "
-                    + ", ".join(allowed)
-                    + ". The others cannot be carried out from where you are.")
+            note = (
+                "\n\nRight now only these are possible: "
+                + ", ".join(allowed)
+                + ". The others cannot be carried out from where you are."
+            )
         p = {
             "model": self.model,
-            "messages": [{"role": "user",
-                          "content": SYSTEM + "\n\n" + ACTIONS_HELP + note
-                                     + "\n\n" + obs_text + "\n\nYour action:"}],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": SYSTEM
+                    + "\n\n"
+                    + ACTIONS_HELP
+                    + note
+                    + "\n\n"
+                    + obs_text
+                    + "\n\nYour action:",
+                }
+            ],
             "temperature": self.temperature,
             # 64 was enough for a non-reasoning model, and starves a reasoning
             # one: muse-glimmer:30B spends the whole budget in
@@ -531,12 +584,12 @@ class Chat:
             # narrow the next one.
             schema = json.loads(json.dumps(self.SCHEMA))
             schema["properties"]["verb"]["enum"] = allowed or ["wait"]
-            schema["properties"]["dir"]["enum"] = (
-                [d for d in DIRS if d in dirs] or ["n"])
+            schema["properties"]["dir"]["enum"] = [d for d in DIRS if d in dirs] or [
+                "n"
+            ]
             p["response_format"] = {
                 "type": "json_schema",
-                "json_schema": {"name": "action", "strict": True,
-                                "schema": schema},
+                "json_schema": {"name": "action", "strict": True, "schema": schema},
             }
         return p
 
@@ -548,10 +601,11 @@ class Chat:
     def act(self, obs_text, verbs=None, dirs=None):
         t0 = time.time()
         out = None
-        for mode in self.MODES[self.MODES.index(self.mode):]:
+        for mode in self.MODES[self.MODES.index(self.mode) :]:
             try:
-                out = self._post("/v1/chat/completions",
-                                 self._payload(obs_text, mode, verbs, dirs))
+                out = self._post(
+                    "/v1/chat/completions", self._payload(obs_text, mode, verbs, dirs)
+                )
             except urllib.error.HTTPError:
                 continue
             if mode != self.mode:
@@ -565,31 +619,36 @@ class Chat:
         usage = out.get("usage") or {}
         tim = out.get("timings") or {}
         self.prompt_tokens += usage.get("prompt_tokens", 0)
-        self.history.append({
-            "wall_ms": wall,
-            # Server-side split: prompt processing vs token generation. These
-            # are the two numbers that actually move -- a long observation is
-            # pp-bound, a long action is tg-bound, and they have wildly
-            # different tokens/s.
-            "pp_n": tim.get("prompt_n", usage.get("prompt_tokens", 0)),
-            "pp_ms": tim.get("prompt_ms", 0.0),
-            "pp_tps": tim.get("prompt_per_second", 0.0),
-            "tg_n": tim.get("predicted_n", usage.get("completion_tokens", 0)),
-            "tg_ms": tim.get("predicted_ms", 0.0),
-            "tg_tps": tim.get("predicted_per_second", 0.0),
-            # Prefix cache: the reason the stable text goes BEFORE the
-            # observation in the prompt. When this is high, pp is nearly free.
-            "cached": (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0),
-            # Speculative decoding, when the server runs a draft model.
-            "draft_n": tim.get("draft_n", 0),
-            "draft_ok": tim.get("draft_n_accepted", 0),
-        })
+        self.history.append(
+            {
+                "wall_ms": wall,
+                # Server-side split: prompt processing vs token generation. These
+                # are the two numbers that actually move -- a long observation is
+                # pp-bound, a long action is tg-bound, and they have wildly
+                # different tokens/s.
+                "pp_n": tim.get("prompt_n", usage.get("prompt_tokens", 0)),
+                "pp_ms": tim.get("prompt_ms", 0.0),
+                "pp_tps": tim.get("prompt_per_second", 0.0),
+                "tg_n": tim.get("predicted_n", usage.get("completion_tokens", 0)),
+                "tg_ms": tim.get("predicted_ms", 0.0),
+                "tg_tps": tim.get("predicted_per_second", 0.0),
+                # Prefix cache: the reason the stable text goes BEFORE the
+                # observation in the prompt. When this is high, pp is nearly free.
+                "cached": (usage.get("prompt_tokens_details") or {}).get(
+                    "cached_tokens", 0
+                ),
+                # Speculative decoding, when the server runs a draft model.
+                "draft_n": tim.get("draft_n", 0),
+                "draft_ok": tim.get("draft_n_accepted", 0),
+            }
+        )
         msg = out["choices"][0]["message"]
         # A thinker that runs out of budget leaves `content` empty with the
         # answer half-formed in `reasoning_content`. Parsing the tail of the
         # thinking is a better guess than returning nothing.
-        text = (msg.get("content") or "").strip() or \
-               (msg.get("reasoning_content") or "").strip()
+        text = (msg.get("content") or "").strip() or (
+            msg.get("reasoning_content") or ""
+        ).strip()
         self.last_raw = Chat._clean(text)
         return self._to_action(text)
 
@@ -604,8 +663,9 @@ class Chat:
         if not model or model == self.model:
             return False
         try:
-            req = urllib.request.Request(self.url + "/v1/models",
-                                         headers=self._headers())
+            req = urllib.request.Request(
+                self.url + "/v1/models", headers=self._headers()
+            )
             with urllib.request.urlopen(req, timeout=15) as r:
                 served = json.load(r).get("data", [])
         except Exception:
@@ -622,7 +682,7 @@ class Chat:
                         self.n_ctx = int(args[i + 1])
                     except ValueError:
                         pass
-            self.history.clear()      # old timings describe a different model
+            self.history.clear()  # old timings describe a different model
             return True
         return False
 
@@ -667,8 +727,10 @@ class Chat:
             "ctx_max": self.n_ctx,
             "ctx_peak": max(x["pp_n"] + x["tg_n"] for x in h),
             "cache_hit": sum(x["cached"] for x in recent) / pp_n,
-            "draft_ok": (sum(x["draft_ok"] for x in recent)
-                         / (sum(x["draft_n"] for x in recent) or 1)),
+            "draft_ok": (
+                sum(x["draft_ok"] for x in recent)
+                / (sum(x["draft_n"] for x in recent) or 1)
+            ),
             "has_draft": any(x["draft_n"] for x in recent),
             "spark": [x["wall_ms"] for x in h[-48:]],
         }
@@ -690,7 +752,7 @@ class Chat:
         """Accept either the JSON object or a bare action line."""
         text = Chat._clean(text)
         try:
-            j = json.loads(text[text.index("{"):text.rindex("}") + 1])
+            j = json.loads(text[text.index("{") : text.rindex("}") + 1])
             verb = j.get("verb", "")
             if verb in ("pickup",):
                 return verb
@@ -709,9 +771,10 @@ def gemma_prompt(system, user):
     """Gemma's chat template. It has no system role, so the system text is
     folded into the first user turn -- which is what the official template
     does too."""
-    return ("<start_of_turn>user\n%s\n\n%s<end_of_turn>\n<start_of_turn>model\n"
-            % (system, user))
-
+    return "<start_of_turn>user\n%s\n\n%s<end_of_turn>\n<start_of_turn>model\n" % (
+        system,
+        user,
+    )
 
 
 # ------------------------------------------------------------------- scripts
@@ -730,77 +793,73 @@ def gemma_prompt(system, user):
 # of it accidental ramming. None of these rules need a bot name, which is why
 # they can land before the entity struct is found.
 
+
 def _pct(v):
     return v["current"] / v["maximum"] if v.get("maximum") else 1.0
 
 
 SCRIPTS = [
-    ("flee_critical",
-     lambda s: s["integrity"] < 0.35 and s["under_attack"],
-     "flee 8"),
-
+    ("flee_critical", lambda s: s["integrity"] < 0.35 and s["under_attack"], "flee 8"),
     # The dossier says nothing named on this floor is armed, so combat is pure
     # cost: heat, energy, and turns not spent descending. This is the rule that
     # would have saved twenty decisions from an R-06 Scavenger.
-    ("ignore_harmless",
-     lambda s: s["all_harmless"] and not s["under_attack"],
-     "explore 12"),
-
-    ("fire_adjacent",
-     lambda s: s["armed"] and s["can_fire"] and s["under_attack"]
-               and s["near"] is not None and s["near"] <= 1,
-     "fire n"),
-
+    (
+        "ignore_harmless",
+        lambda s: s["all_harmless"] and not s["under_attack"],
+        "explore 12",
+    ),
+    (
+        "fire_adjacent",
+        lambda s: s["armed"]
+        and s["can_fire"]
+        and s["under_attack"]
+        and s["near"] is not None
+        and s["near"] <= 1,
+        "fire n",
+    ),
     # Outnumbered and armed: funnel them rather than run. Fleeing in the open
     # from three hostiles just means being shot in the back by three hostiles.
-    ("fight_doorway",
-     lambda s: s["armed"] and s["under_attack"] and s["hostiles"] >= 2
-               and s.get("doorway_near"),
-     "doorway 6"),
-
-    ("flee_outnumbered",
-     lambda s: s["under_attack"] and s["hostiles"] >= 3
-               and s["near"] is not None and s["near"] <= 5,
-     "flee 8"),
-
-    ("fire_in_range",
-     lambda s: s["armed"] and s["can_fire"] and s["under_attack"]
-               and s["near"] is not None and s["near"] <= 6,
-     "fire n"),
-
-    ("pickup_underfoot",
-     lambda s: s["on_item"],
-     "pickup"),
-
+    (
+        "fight_doorway",
+        lambda s: s["armed"]
+        and s["under_attack"]
+        and s["hostiles"] >= 2
+        and s.get("doorway_near"),
+        "doorway 6",
+    ),
+    (
+        "flee_outnumbered",
+        lambda s: s["under_attack"]
+        and s["hostiles"] >= 3
+        and s["near"] is not None
+        and s["near"] <= 5,
+        "flee 8",
+    ),
+    (
+        "fire_in_range",
+        lambda s: s["armed"]
+        and s["can_fire"]
+        and s["under_attack"]
+        and s["near"] is not None
+        and s["near"] <= 6,
+        "fire n",
+    ),
+    ("pickup_underfoot", lambda s: s["on_item"], "pickup"),
     # Build before tactics. Both baselines died having lost five parts and
     # attached nothing, holding working weapons -- they did not lose fights,
     # they arrived at them naked. Only fires when not under fire; rebuilding
     # mid-firefight is how you die holding a screwdriver.
-    ("build",
-     lambda s: s.get("build_action") is not None and not s["under_attack"],
-     "BUILD"),
-
-    ("flee_unarmed",
-     lambda s: not s["armed"] and s["under_attack"],
-     "flee 8"),
-
-    ("descend_standing",
-     lambda s: s["on_exit"],
-     "descend 1"),
-
-    ("descend_known",
-     lambda s: s["exit_route"],
-     "descend 12"),
-
-    ("wait_regen",
-     lambda s: s["energy"] < 0.25 and s["near"] is None,
-     "wait 4"),
-
-    ("explore",
-     lambda s: True,
-     "explore 12"),
+    (
+        "build",
+        lambda s: s.get("build_action") is not None and not s["under_attack"],
+        "BUILD",
+    ),
+    ("flee_unarmed", lambda s: not s["armed"] and s["under_attack"], "flee 8"),
+    ("descend_standing", lambda s: s["on_exit"], "descend 1"),
+    ("descend_known", lambda s: s["exit_route"], "descend 12"),
+    ("wait_regen", lambda s: s["energy"] < 0.25 and s["near"] is None, "wait 4"),
+    ("explore", lambda s: True, "explore 12"),
 ]
-
 
 
 # --------------------------------------------------------------------- watch
@@ -826,24 +885,38 @@ def render_watch(agent, dump, sit, action, result, i):
     v = agent.view
     r = o["resources"]
     L = [ANSI_HOME]
-    L.append("\033[1mcogbench\033[0m  %s   decision %-4d turn %-5s %s d%s"
-             % (agent.policy, i, o["turns"]["passed"],
-                o["location"]["map"], o["location"]["depth"]))
+    L.append(
+        "\033[1mcogbench\033[0m  %s   decision %-4d turn %-5s %s d%s"
+        % (
+            agent.policy,
+            i,
+            o["turns"]["passed"],
+            o["location"]["map"],
+            o["location"]["depth"],
+        )
+    )
     L.append("")
-    for label, key in (("core", "core_integrity"), ("matter", "matter"),
-                       ("energy", "energy")):
+    for label, key in (
+        ("core", "core_integrity"),
+        ("matter", "matter"),
+        ("energy", "energy"),
+    ):
         vv = r[key]
-        L.append("  %-7s %s %4d/%-4d" % (label, bar(vv["current"], vv["maximum"]),
-                                         vv["current"], vv["maximum"]))
+        L.append(
+            "  %-7s %s %4d/%-4d"
+            % (label, bar(vv["current"], vv["maximum"]), vv["current"], vv["maximum"])
+        )
     L.append("")
     px, py = v.player
     for y in range(py - 7, py + 8):
         row = []
         for x in range(px - 16, px + 17):
             if (x, y) == (px, py):
-                row.append("\033[1;97m@\033[0m"); continue
+                row.append("\033[1;97m@\033[0m")
+                continue
             if (x, y) in v.entities:
-                row.append("\033[1;91m%s\033[0m" % v.entities[(x, y)]); continue
+                row.append("\033[1;91m%s\033[0m" % v.entities[(x, y)])
+                continue
             ch = v.world.get((x, y), "?")
             if ch in GLYPH_EXITS:
                 row.append("\033[1;96m%s\033[0m" % ch)
@@ -859,19 +932,28 @@ def render_watch(agent, dump, sit, action, result, i):
     L.append("")
     for sect in ("power", "propulsion", "utility", "weapon"):
         pp = o["parts"][sect]
-        L.append("  %-11s %d/%d  %s" % (sect, len(pp["attached"]), pp["slots"],
-                                        ", ".join(pp["attached"]) or "-"))
+        L.append(
+            "  %-11s %d/%d  %s"
+            % (sect, len(pp["attached"]), pp["slots"], ", ".join(pp["attached"]) or "-")
+        )
     inv = o["parts"]["inventory"]["attached"]
     L.append("  %-11s %-5d %s" % ("inventory", len(inv), ", ".join(inv[:4]) or "-"))
     L.append("")
-    L.append("  hostiles %-3s nearest %-6s under-attack %-6s armed %s"
-             % (sit.get("hostiles"), sit.get("near"),
-                sit.get("under_attack"), sit.get("armed")))
+    L.append(
+        "  hostiles %-3s nearest %-6s under-attack %-6s armed %s"
+        % (
+            sit.get("hostiles"),
+            sit.get("near"),
+            sit.get("under_attack"),
+            sit.get("armed"),
+        )
+    )
     if sit.get("dossier"):
         L.append("  identified  %s" % ", ".join(sit["dossier"]))
     L.append("")
-    L.append("  \033[1m%-18s %-13s\033[0m %s"
-             % (agent.last_script or "-", action, result))
+    L.append(
+        "  \033[1m%-18s %-13s\033[0m %s" % (agent.last_script or "-", action, result)
+    )
     L.append("")
     for line in o["messages"][-4:]:
         L.append("  \033[90m%s\033[0m" % line[:96])
@@ -879,6 +961,7 @@ def render_watch(agent, dump, sit, action, result, i):
 
 
 # -------------------------------------------------------------------- theagent
+
 
 class Agent(Bot):
     def __init__(self, sm, llama=None, policy="model", cheat=False, verbose=True):
@@ -944,12 +1027,12 @@ class Agent(Bot):
         # does. After that a read costs one call and no keypresses.
         self.glyph = None
         self.gtable = glyphs.table()
-        self.screen = {}            # (row, col) -> slot, the whole screen
-        self.screen_lines = []      # what changed at the last decision
+        self.screen = {}  # (row, col) -> slot, the whole screen
+        self.screen_lines = []  # what changed at the last decision
         self.screen_cells = 0
-        self.screen_lost = 0        # draws the log dropped; the grid is stale
+        self.screen_lost = 0  # draws the log dropped; the grid is stale
         self._seeded = False
-        self.stuck = 0              # decisions in a row that changed nothing
+        self.stuck = 0  # decisions in a row that changed nothing
         self._stuck_sig = None
         self.last_sit = None
         self.chat = None
@@ -959,11 +1042,13 @@ class Agent(Bot):
         self.recent = collections.deque(maxlen=14)
         self.stamps = collections.deque(maxlen=60)
         try:
-            found = glyphs.find_atlases(sm)   # this forces a repaint to find them
+            found = glyphs.find_atlases(sm)  # this forces a repaint to find them
             if "text" in found:
                 self.glyph = found["text"]
-                self.say("screen text: %s, %dx%d cells"
-                         % ("0x%08X" % self.glyph["ptr"], *self.glyph["cell"]))
+                self.say(
+                    "screen text: %s, %dx%d cells"
+                    % ("0x%08X" % self.glyph["ptr"], *self.glyph["cell"])
+                )
         except Exception as e:
             self.say("screen text: discovery deferred (%s)" % e)
 
@@ -1024,8 +1109,11 @@ class Agent(Bot):
         # Nothing moved? Then the last action did not land, and the usual reason
         # is a panel eating the keys. Two in a row is enough to pay for a full
         # screen read.
-        sig = (dump.get("stats", {}).get("exploration", {}).get("turnsPassed", 0),
-               pl["x"], pl["y"])
+        sig = (
+            dump.get("stats", {}).get("exploration", {}).get("turnsPassed", 0),
+            pl["x"],
+            pl["y"],
+        )
         self.stuck = self.stuck + 1 if sig == self._stuck_sig else 0
         self._stuck_sig = sig
         # Walking into a terminal opens the hacking screen, and it swallows
@@ -1109,8 +1197,9 @@ class Agent(Bot):
                 got = glyphs.classify(self.sm, ptr)
                 if got and got["kind"] == "text":
                     self.glyph = got
-                    self.say("screen text: 0x%08X, %dx%d cells"
-                             % (got["ptr"], *got["cell"]))
+                    self.say(
+                        "screen text: 0x%08X, %dx%d cells" % (got["ptr"], *got["cell"])
+                    )
                     break
             if self.glyph is None:
                 self.sm.tool("blit_clear")
@@ -1154,49 +1243,63 @@ class Agent(Bot):
         span = self.stamps[-1] - self.stamps[0]
         me = self.view.player
         try:
-            stream.publish({
-                "status": "playing",
-                "run": {
-                    "depth": o["location"]["depth"], "map": o["location"]["map"],
-                    "turn": o["turns"]["passed"], "decisions": self.decisions,
-                    "steps": o["turns"]["spaces_moved"],
-                    "result": o["run"]["result_so_far"],
-                    "dpm": (len(self.stamps) - 1) / span * 60 if span > 0 else 0,
-                },
-                "res": {
-                    k: [r[k]["current"], r[k]["maximum"]]
-                    for k in ("core_integrity", "matter", "energy")
-                },
-                "heat": r["heat"], "corruption": r["corruption"],
-                "parts": {k: o["parts"][k]["attached"]
-                          for k in ("power", "propulsion", "utility", "weapon")},
-                "slots": {k: o["parts"][k]["slots"]
-                          for k in ("power", "propulsion", "utility", "weapon")},
-                "inventory": o["parts"]["inventory"]["attached"],
-                "hostiles": [[bearing(me, p)[0], bearing(me, p)[1], g]
-                             for p, g in list(self.view.entities.items())[:6]],
-                "map": self.view.crop(8),
-                "log": o["messages"][-6:],
-                "screen": self.screen_lines[-4:],
-                "recent": list(self.recent),
-                # Everything below exists only inside the harness. The game's
-                # own UI is already on screen next to this, so mirroring its
-                # HUD says nothing; what nobody can see is what the agent
-                # KNOWS -- its fogged map, the guards it reasons over, and the
-                # literal string the model emitted.
-                "chat": self.chat.recent(limit=8) if self.chat else [],
-                "chat_status": self.chat.status() if self.chat else None,
-                "params": dict(self._params),
-                "sit": self.last_sit or {},
-                "script": self.last_script,
-                "raw": getattr(self.llama, "last_raw", "") if self.llama else "",
-                "invalid": self.invalid,
-                "mapped": len(self.view.world),
-                "frontier": len(self.view.unknown),
-                "blocked": len(self.blocked),
-                "perf": self.llama.metrics() if self.llama else
-                        {"calls": 0, "model": self.policy},
-            })
+            stream.publish(
+                {
+                    "status": "playing",
+                    "run": {
+                        "depth": o["location"]["depth"],
+                        "map": o["location"]["map"],
+                        "turn": o["turns"]["passed"],
+                        "decisions": self.decisions,
+                        "steps": o["turns"]["spaces_moved"],
+                        "result": o["run"]["result_so_far"],
+                        "dpm": (len(self.stamps) - 1) / span * 60 if span > 0 else 0,
+                    },
+                    "res": {
+                        k: [r[k]["current"], r[k]["maximum"]]
+                        for k in ("core_integrity", "matter", "energy")
+                    },
+                    "heat": r["heat"],
+                    "corruption": r["corruption"],
+                    "parts": {
+                        k: o["parts"][k]["attached"]
+                        for k in ("power", "propulsion", "utility", "weapon")
+                    },
+                    "slots": {
+                        k: o["parts"][k]["slots"]
+                        for k in ("power", "propulsion", "utility", "weapon")
+                    },
+                    "inventory": o["parts"]["inventory"]["attached"],
+                    "hostiles": [
+                        [bearing(me, p)[0], bearing(me, p)[1], g]
+                        for p, g in list(self.view.entities.items())[:6]
+                    ],
+                    "map": self.view.crop(8),
+                    "log": o["messages"][-6:],
+                    "screen": self.screen_lines[-4:],
+                    "recent": list(self.recent),
+                    # Everything below exists only inside the harness. The game's
+                    # own UI is already on screen next to this, so mirroring its
+                    # HUD says nothing; what nobody can see is what the agent
+                    # KNOWS -- its fogged map, the guards it reasons over, and the
+                    # literal string the model emitted.
+                    "chat": self.chat.recent(limit=8) if self.chat else [],
+                    "chat_status": self.chat.status() if self.chat else None,
+                    "params": dict(self._params),
+                    "sit": self.last_sit or {},
+                    "script": self.last_script,
+                    "raw": getattr(self.llama, "last_raw", "") if self.llama else "",
+                    "invalid": self.invalid,
+                    "mapped": len(self.view.world),
+                    "frontier": len(self.view.unknown),
+                    "blocked": len(self.blocked),
+                    "perf": (
+                        self.llama.metrics()
+                        if self.llama
+                        else {"calls": 0, "model": self.policy}
+                    ),
+                }
+            )
         except Exception as e:
             self.say("stream publish failed: %s" % e)
 
@@ -1254,7 +1357,7 @@ class Agent(Bot):
         measuring this function instead.
         """
         me = self.view.player
-        verbs = {"wait"}                  # always available, never useless
+        verbs = {"wait"}  # always available, never useless
         if self.available_dirs():
             verbs.add("move")
 
@@ -1296,8 +1399,12 @@ class Agent(Bot):
             path = statdump.wine_path_to_host(info.get("returned") or "")
             js = path[:-4] + ".json" if path.endswith(".txt") else path
             d = statdump.load(js)
-            return (d.get("stats", {}).get("combat", {})
-                     .get("volleysFired", {}).get("overall", 0))
+            return (
+                d.get("stats", {})
+                .get("combat", {})
+                .get("volleysFired", {})
+                .get("overall", 0)
+            )
         except Exception:
             return -1
 
@@ -1314,8 +1421,10 @@ class Agent(Bot):
             path = statdump.wine_path_to_host(info.get("returned") or "")
             js = path[:-4] + ".json" if path.endswith(".txt") else path
             o = statdump.observation(statdump.load(js))
-            return sum(len(o["parts"][k]["attached"])
-                       for k in ("power", "propulsion", "utility", "weapon"))
+            return sum(
+                len(o["parts"][k]["attached"])
+                for k in ("power", "propulsion", "utility", "weapon")
+            )
         except Exception:
             return -1
 
@@ -1326,9 +1435,10 @@ class Agent(Bot):
         mid-stream costs one stat() per decision and takes effect on the next
         one without restarting anything.
         """
-        path = os.path.join(os.environ.get("COGBENCH_STREAM_DIR",
-                                           os.path.dirname(stream.STATE)),
-                            "params.json")
+        path = os.path.join(
+            os.environ.get("COGBENCH_STREAM_DIR", os.path.dirname(stream.STATE)),
+            "params.json",
+        )
         try:
             m = os.path.getmtime(path)
         except OSError:
@@ -1372,45 +1482,75 @@ class Agent(Bot):
 
     def screen_text(self):
         """The whole reconstructed screen, for debugging and for panels."""
-        return "\n".join("%3d|%s" % (r, line)
-                          for r, line in glyphs.render(self.screen, self.gtable)
-                          if line.strip())
+        return "\n".join(
+            "%3d|%s" % (r, line)
+            for r, line in glyphs.render(self.screen, self.gtable)
+            if line.strip()
+        )
 
     def render(self, dump, pl):
         o = statdump.observation(dump)
         me = (pl["x"], pl["y"])
         L = []
-        L.append("depth %s %s   turn %s"
-                 % (o["location"]["depth"], o["location"]["map"],
-                    o["turns"]["passed"]))
+        L.append(
+            "depth %s %s   turn %s"
+            % (o["location"]["depth"], o["location"]["map"], o["turns"]["passed"])
+        )
         r = o["resources"]
-        L.append("core %d/%d  matter %d/%d  energy %d/%d  corruption %d  heat %d"
-                 % (r["core_integrity"]["current"], r["core_integrity"]["maximum"],
-                    r["matter"]["current"], r["matter"]["maximum"],
-                    r["energy"]["current"], r["energy"]["maximum"],
-                    r["corruption"], r["heat"]))
+        L.append(
+            "core %d/%d  matter %d/%d  energy %d/%d  corruption %d  heat %d"
+            % (
+                r["core_integrity"]["current"],
+                r["core_integrity"]["maximum"],
+                r["matter"]["current"],
+                r["matter"]["maximum"],
+                r["energy"]["current"],
+                r["energy"]["maximum"],
+                r["corruption"],
+                r["heat"],
+            )
+        )
 
         for sect in ("power", "propulsion", "utility", "weapon"):
             p = o["parts"][sect]
             got = p["attached"]
-            L.append("%-11s %d/%d  %s" % (sect, len(got), p["slots"],
-                                          ", ".join(got) or "EMPTY"))
+            L.append(
+                "%-11s %d/%d  %s"
+                % (sect, len(got), p["slots"], ", ".join(got) or "EMPTY")
+            )
         inv = o["parts"]["inventory"]
         # Kept here because render() runs once per decision, immediately before
         # the model is asked to choose -- so available_verbs() reads a count
         # from this same observation rather than paying for a dump of its own.
         self.inventory_size = len(inv["attached"])
-        L.append("inventory   %s" % (", ".join(
-            "%d:%s" % (i, n) for i, n in enumerate(inv["attached"][:8])) or "empty"))
+        L.append(
+            "inventory   %s"
+            % (
+                ", ".join("%d:%s" % (i, n) for i, n in enumerate(inv["attached"][:8]))
+                or "empty"
+            )
+        )
 
-        hostiles = sorted(((bearing(me, p)[1], bearing(me, p)[0], g)
-                           for p, g in self.view.entities.items()))[:4]
-        L.append("hostiles    " + (", ".join("%s %s %d" % (g, d, n)
-                                             for n, d, g in hostiles) or "none"))
-        objs = sorted(((bearing(me, p)[1], bearing(me, p)[0], g)
-                       for p, g in self.view.objects.items()))[:4]
-        L.append("objects     " + (", ".join("%s %s %d" % (g, d, n)
-                                             for n, d, g in objs) or "none"))
+        hostiles = sorted(
+            (
+                (bearing(me, p)[1], bearing(me, p)[0], g)
+                for p, g in self.view.entities.items()
+            )
+        )[:4]
+        L.append(
+            "hostiles    "
+            + (", ".join("%s %s %d" % (g, d, n) for n, d, g in hostiles) or "none")
+        )
+        objs = sorted(
+            (
+                (bearing(me, p)[1], bearing(me, p)[0], g)
+                for p, g in self.view.objects.items()
+            )
+        )[:4]
+        L.append(
+            "objects     "
+            + (", ".join("%s %s %d" % (g, d, n) for n, d, g in objs) or "none")
+        )
 
         path = self.route(me, self.view.exits) if self.view.exits else None
         if path is not None:
@@ -1421,8 +1561,10 @@ class Agent(Bot):
         else:
             L.append("exit        not found yet -- explore")
 
-        L.append("mapped      %d cells known, %d unexplored edges"
-                 % (len(self.view.world), len(self.view.unknown)))
+        L.append(
+            "mapped      %d cells known, %d unexplored edges"
+            % (len(self.view.world), len(self.view.unknown))
+        )
         L.append("log         " + " | ".join(o["messages"][-3:]))
         if self.screen_lines:
             L.append("screen      " + " | ".join(self.screen_lines[-4:]))
@@ -1432,28 +1574,41 @@ class Agent(Bot):
             # text out of the budget.
             panel = []
             for line in self.full_screen():
-                line = re.sub(r"[\u2502\u250c\u2510\u2514\u2518\u251c\u2524\u2500\u2588]", " ", line)
+                line = re.sub(
+                    r"[\u2502\u250c\u2510\u2514\u2518\u251c\u2524\u2500\u2588]",
+                    " ",
+                    line,
+                )
                 line = re.sub(r"\s{3,}", "  ", line).strip()
                 if len(re.sub(r"[^A-Za-z]", "", line)) >= 4:
                     panel.append(line)
             if panel:
-                L.append("nothing has changed for %d decisions. the screen reads:"
-                         % self.stuck)
+                L.append(
+                    "nothing has changed for %d decisions. the screen reads:"
+                    % self.stuck
+                )
                 L.extend("  " + line[:120] for line in panel[:16])
         if self.screen_cells > 400:
             # That much redrawing at once is a panel opening or closing, not the
             # map ticking. The agent has no other way to notice that a modal is
             # swallowing its keys.
-            L.append("            (%d cells redrawn -- a panel opened or closed)"
-                     % self.screen_cells)
+            L.append(
+                "            (%d cells redrawn -- a panel opened or closed)"
+                % self.screen_cells
+            )
         L.append("")
         L.append("map (@ = you, ? = unexplored, # = wall):")
         L.extend(self.view.crop(6))
         if self.chat:
             prm = self.params()
-            said = self.chat.recent(limit=int(prm.get("chat_limit", 20)),
-                                    window=float(prm.get("chat_window_min", 10)) * 60) \
-                   if prm.get("chat_on", True) else []
+            said = (
+                self.chat.recent(
+                    limit=int(prm.get("chat_limit", 20)),
+                    window=float(prm.get("chat_window_min", 10)) * 60,
+                )
+                if prm.get("chat_on", True)
+                else []
+            )
             if said:
                 L.append("")
                 L.append(CHAT_HEADER)
@@ -1473,8 +1628,9 @@ class Agent(Bot):
         # longest common prefix re-evaluates only what changed.
         for _ in range(3):
             try:
-                a = self.llama.act(obs_text, verbs=self.available_verbs(),
-                               dirs=self.available_dirs())
+                a = self.llama.act(
+                    obs_text, verbs=self.available_verbs(), dirs=self.available_dirs()
+                )
             except Exception as e:
                 # The endpoint is down or wedged. Waiting is the right move --
                 # the game is turn-based and nothing decays while we stall.
@@ -1502,8 +1658,7 @@ class Agent(Bot):
         are the wrong abstraction."""
         o = statdump.observation(dump)
         me = self.view.player
-        dists = [max(abs(p[0] - me[0]), abs(p[1] - me[1]))
-                 for p in self.view.entities]
+        dists = [max(abs(p[0] - me[0]), abs(p[1] - me[1])) for p in self.view.entities]
         r = o["resources"]
 
         # A letter glyph is not a hostile. Most robots in the Scrapyard are
@@ -1553,9 +1708,12 @@ class Agent(Bot):
         # Negative resistance means that damage type does *extra*. Every early
         # Cogmind bot carries Electromagnetic -25, so an EM weapon is strictly
         # the better opener when we are holding one.
-        em_edge = any(str((d.get("resistances") or {})
-                          .get("Electromagnetic", "0")).startswith("-")
-                      for d in dossier)
+        em_edge = any(
+            str((d.get("resistances") or {}).get("Electromagnetic", "0")).startswith(
+                "-"
+            )
+            for d in dossier
+        )
         return {
             "integrity": _pct(r["core_integrity"]),
             "energy": _pct(r["energy"]),
@@ -1576,8 +1734,8 @@ class Agent(Bot):
             "dossier": [d["name"] for d in dossier],
             "toughest": max([d["core_integrity"] for d in dossier] or [0]),
             "panel_open": self.screen_cells > 400,
-            "exit_route": bool(self.view.exits) and
-                          self.route(me, self.view.exits) is not None,
+            "exit_route": bool(self.view.exits)
+            and self.route(me, self.view.exits) is not None,
         }
 
     def machine_hacking(self, settle=False, tries=60, quiet_for=4, delay=0.15):
@@ -1604,8 +1762,12 @@ class Agent(Bot):
         def read():
             w = json.loads(self.sm.tool("read_window", {"addr": ptr, "words": 4}))
             a, d, t, ok = [x["i32"] for x in w["words"]]
-            return {"action_ready": a, "detect_chance": d,
-                    "trace_progress": t, "last_hack_success": bool(ok)}
+            return {
+                "action_ready": a,
+                "detect_chance": d,
+                "trace_progress": t,
+                "last_hack_success": bool(ok),
+            }
 
         cur = read()
         if not settle:
@@ -1658,12 +1820,16 @@ class Agent(Bot):
             # trace dataset with fake zero-cost samples -- `Layout(Zone)`
             # reported failure at zero cost while a real failure cost 56.
             attempted = after.get("action_ready", 0) > mh["action_ready"]
-            rec = {"hack": name, "chance": chance, "depth": depth,
-                   "detect_chance": mh["detect_chance"],
-                   "trace_before": before,
-                   "trace_after": after.get("trace_progress"),
-                   "success": after.get("last_hack_success"),
-                   "attempted": attempted}
+            rec = {
+                "hack": name,
+                "chance": chance,
+                "depth": depth,
+                "detect_chance": mh["detect_chance"],
+                "trace_before": before,
+                "trace_after": after.get("trace_progress"),
+                "success": after.get("last_hack_success"),
+                "attempted": attempted,
+            }
             # Only real attempts teach anything about the trace curve.
             if attempted:
                 self.trace.observe(rec)
@@ -1759,8 +1925,7 @@ class Agent(Bot):
             # never let them veto the plan outright.
             path = None
             for avoid, blist in ((True, True), (False, True), (False, False)):
-                path = self.route(me, goals, avoid_entities=avoid,
-                                  use_blacklist=blist)
+                path = self.route(me, goals, avoid_entities=avoid, use_blacklist=blist)
                 if path:
                     break
             if not path:
@@ -1796,7 +1961,11 @@ class Agent(Bot):
                     # would be easy to call this a hit, but nothing here has
                     # checked that anything was damaged.
                     return moved, "%s: %s in the way at %s (%d)" % (
-                        label, who, path[0], self.bumps[path[0]])
+                        label,
+                        who,
+                        path[0],
+                        self.bumps[path[0]],
+                    )
                 # Either nothing is known to be there, or we have swung this
                 # many times and it has neither died nor moved -- a stale
                 # entity reading, or something that does not die. Fall through
@@ -1804,7 +1973,10 @@ class Agent(Bot):
                 self.fails[path[0]] += 1
                 self.blocked.add(path[0])
                 return moved, "%s: blocked at %s (strike %d)" % (
-                    label, path[0], self.fails[path[0]])
+                    label,
+                    path[0],
+                    self.fails[path[0]],
+                )
             # The step landed, so whatever was in the way is gone: forget the
             # swings it took, or the count would carry over to the next robot
             # that happens to stand on the same cell.
@@ -1845,8 +2017,10 @@ class Agent(Bot):
                 return "flee: nothing to flee from"
             # Walk to the reachable known cell that maximises distance from the
             # nearest hostile -- crude, but it beats stepping at random.
-            near = min(self.view.entities,
-                       key=lambda p: max(abs(p[0] - me[0]), abs(p[1] - me[1])))
+            near = min(
+                self.view.entities,
+                key=lambda p: max(abs(p[0] - me[0]), abs(p[1] - me[1])),
+            )
             # Choose among cells we can actually get to. Sorting the whole
             # known map by distance from the hostile and taking the farthest
             # twenty picks the far corners of the floor, which are usually
@@ -1858,9 +2032,9 @@ class Agent(Bot):
             reach.discard(me)
             if not reach:
                 return "flee: boxed in, nowhere to walk"
-            far = sorted(reach,
-                         key=lambda p: -max(abs(p[0] - near[0]),
-                                            abs(p[1] - near[1])))
+            far = sorted(
+                reach, key=lambda p: -max(abs(p[0] - near[0]), abs(p[1] - near[1]))
+            )
             return self.walk_toward(set(far[:20]), int(rest[0]), "flee")[1]
 
         if verb == "move":
@@ -1868,8 +2042,9 @@ class Agent(Bot):
             dx, dy = DIRS[d]
             moved = 0
             for _ in range(n):
-                ok, _ = self.move_to((self.view.player[0] + dx,
-                                      self.view.player[1] + dy))
+                ok, _ = self.move_to(
+                    (self.view.player[0] + dx, self.view.player[1] + dy)
+                )
                 if not ok:
                     break
                 moved += 1
@@ -1884,7 +2059,9 @@ class Agent(Bot):
                 # in line of sight, so the next `fire` is a different question.
                 self.dud_fires = 0
                 return "fire suppressed after %d blanks; exploring instead -- %s" % (
-                    FIRE_DUD_LIMIT, self.do("explore 4"))
+                    FIRE_DUD_LIMIT,
+                    self.do("explore 4"),
+                )
             # `f` enters CMD_DOMAIN_BS_TARGETING with the cursor already on the
             # nearest target, and `f` again is CMD_BS_TARGETING_FIRE. The old
             # version sent `f` then a *direction* then RETURN -- but in
@@ -1913,16 +2090,16 @@ class Agent(Bot):
             # was honoured, which is how it ended up cycling directions looking
             # for one that worked.
             me = self.view.player
-            near = min(self.view.entities.items(),
-                       key=lambda kv: max(abs(kv[0][0] - me[0]),
-                                          abs(kv[0][1] - me[1])))
+            near = min(
+                self.view.entities.items(),
+                key=lambda kv: max(abs(kv[0][0] - me[0]), abs(kv[0][1] - me[1])),
+            )
             glyph = near[1]
             dist = max(abs(near[0][0] - me[0]), abs(near[0][1] - me[1]))
             after = self.volleys_fired()
             if after > before:
                 self.dud_fires = 0
-                return "fire: %d volley at %s %d away" % (after - before,
-                                                          glyph, dist)
+                return "fire: %d volley at %s %d away" % (after - before, glyph, dist)
             self.dud_fires += 1
             # Nothing came out of the barrel. Usually the nearest letter is not
             # a valid target at all -- a machine, or a derelict the game will
@@ -1930,8 +2107,10 @@ class Agent(Bot):
             # is what stops the model firing at the same wall for sixteen
             # decisions, which is exactly what it did when this returned a
             # success string.
-            return ("fire: no shot (%s %d away is not a target the game will "
-                    "shoot, or there is no line of sight)" % (glyph, dist))
+            return (
+                "fire: no shot (%s %d away is not a target the game will "
+                "shoot, or there is no line of sight)" % (glyph, dist)
+            )
 
         if verb == "doorway":
             posts = self.view.doorway_posts()
@@ -1942,8 +2121,9 @@ class Agent(Bot):
                 # stepping away from the door is what breaks the funnel.
                 self.key(K_WAIT, 0, pause=0.25)
                 return "doorway: holding"
-            moved, msg = self.walk_toward({p for p, _ in posts[:4]},
-                                          int(rest[0]) if rest else 6, "doorway")
+            moved, msg = self.walk_toward(
+                {p for p, _ in posts[:4]}, int(rest[0]) if rest else 6, "doorway"
+            )
             return msg
 
         if verb in ("equip", "attach"):
@@ -1959,8 +2139,16 @@ class Agent(Bot):
             n = int(rest[0])
             sym = ord("0") if n == 9 else ord(str(n + 1))
             before = self.attached_count()
-            self.sm.tool("key", {"keysym": sym, "unicode": sym,
-                                 "ctrl": True, "shift": False, "alt": False})
+            self.sm.tool(
+                "key",
+                {
+                    "keysym": sym,
+                    "unicode": sym,
+                    "ctrl": True,
+                    "shift": False,
+                    "alt": False,
+                },
+            )
             time.sleep(0.45)
             # Say what happened, not what was attempted. A part that will not
             # attach is worth knowing about: it means no propulsion, and a
@@ -1989,7 +2177,7 @@ class Agent(Bot):
 
         if verb == "wait":
             for _ in range(int(rest[0])):
-                self.key(K_WAIT, 0, pause=0.2)   # KP5, not the '5' key
+                self.key(K_WAIT, 0, pause=0.2)  # KP5, not the '5' key
             return "wait %s" % rest[0]
 
         return "unhandled: %s" % action
@@ -2026,9 +2214,13 @@ class Agent(Bot):
                     return self.finish(end, start, t0, "run ended")
                 if stuck >= 12:
                     self.screenshot("stuck")
-                    return self.finish(end, start, t0,
-                                       "could not reach the base screen; "
-                                       "screenshot written to the profile")
+                    return self.finish(
+                        end,
+                        start,
+                        t0,
+                        "could not reach the base screen; "
+                        "screenshot written to the profile",
+                    )
                 continue
             stuck = 0
 
@@ -2045,8 +2237,10 @@ class Agent(Bot):
                 except Exception as e:
                     print("[watch] %s" % e, flush=True)
             else:
-                self.say("[%3d] d%-4s %-16s %-12s -> %s"
-                         % (i, depth, self.last_script or "-", action, result))
+                self.say(
+                    "[%3d] d%-4s %-16s %-12s -> %s"
+                    % (i, depth, self.last_script or "-", action, result)
+                )
 
             if self.stream:
                 self.publish_stream(dump, pl, action, result, i)
@@ -2059,8 +2253,11 @@ class Agent(Bot):
 
     def finish(self, end, start, t0, why):
         out = {
-            "status": ("ended" if end else "budget_exhausted"
-                       if why == "decision budget spent" else "blocked"),
+            "status": (
+                "ended"
+                if end
+                else "budget_exhausted" if why == "decision budget spent" else "blocked"
+            ),
             "policy": self.policy,
             "fair_view": not self.cheat,
             "why": why,
@@ -2086,54 +2283,81 @@ class Agent(Bot):
 
 
 def parse_action(s):
-    return bool(re.fullmatch(
-        r"(descend|explore|flee|wait) (1|2|4|8|12)"
-        r"|move (n|ne|e|se|s|sw|w|nw) (1|2|4|8|12)"
-        r"|fire(?: (n|ne|e|se|s|sw|w|nw))?|pickup|attach [0-7]", s.strip()))
+    return bool(
+        re.fullmatch(
+            r"(descend|explore|flee|wait) (1|2|4|8|12)"
+            r"|move (n|ne|e|se|s|sw|w|nw) (1|2|4|8|12)"
+            r"|fire(?: (n|ne|e|se|s|sw|w|nw))?|pickup|attach [0-7]",
+            s.strip(),
+        )
+    )
 
 
 # ------------------------------------------------------------------------ main
 
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--statmind", default=os.environ.get(
-        "STATMIND", "/Users/heni/genAI/cogbench/StatMind/target/release/statmind"))
-    ap.add_argument("--url", default=os.environ.get(
-        "COGBENCH_URL", "http://127.0.0.1:8000"),
+    ap.add_argument(
+        "--statmind",
+        default=os.environ.get(
+            "STATMIND", "/Users/heni/genAI/cogbench/StatMind/target/release/statmind"
+        ),
+    )
+    ap.add_argument(
+        "--url",
+        default=os.environ.get("COGBENCH_URL", "http://127.0.0.1:8000"),
         help="OpenAI-compatible endpoint, with or without the /v1 suffix "
-             "(default: oMLX on :8000; $COGBENCH_URL overrides)")
-    ap.add_argument("--api-key", default=os.environ.get("COGBENCH_API_KEY"),
-                    help="bearer token for a remote endpoint "
-                         "($COGBENCH_API_KEY; unset is fine for a local server)")
-    ap.add_argument("--model", help="model id, or any unique substring of one; "
-                                    "default: first one served")
-    ap.add_argument("--policy", choices=["model", "heuristic", "scripts"],
-                    default="model")
+        "(default: oMLX on :8000; $COGBENCH_URL overrides)",
+    )
+    ap.add_argument(
+        "--api-key",
+        default=os.environ.get("COGBENCH_API_KEY"),
+        help="bearer token for a remote endpoint "
+        "($COGBENCH_API_KEY; unset is fine for a local server)",
+    )
+    ap.add_argument(
+        "--model",
+        help="model id, or any unique substring of one; " "default: first one served",
+    )
+    ap.add_argument(
+        "--policy", choices=["model", "heuristic", "scripts"], default="model"
+    )
     ap.add_argument("--temperature", type=float, default=0.7)
     ap.add_argument("--decisions", type=int, default=200)
-    ap.add_argument("--cheat", action="store_true",
-                    help="terrain from the cell table (ground truth) instead of "
-                         "the known map -- comparable to bot.py, not a fair run")
+    ap.add_argument(
+        "--cheat",
+        action="store_true",
+        help="terrain from the cell table (ground truth) instead of "
+        "the known map -- comparable to bot.py, not a fair run",
+    )
     ap.add_argument("--out", help="write the result JSON here")
-    ap.add_argument("--twitch", metavar="CHANNEL",
-                    help="read this Twitch channel's chat (anonymously, no "
-                         "account) and show it to the model as spectator "
-                         "chatter -- message text only, usernames stripped")
-    ap.add_argument("--stream", action="store_true",
-                    help="publish state for the OBS overlay (stream.py serve)")
-    ap.add_argument("--watch", action="store_true",
-                    help="live in-place terminal view instead of a scrolling log")
+    ap.add_argument(
+        "--twitch",
+        metavar="CHANNEL",
+        help="read this Twitch channel's chat (anonymously, no "
+        "account) and show it to the model as spectator "
+        "chatter -- message text only, usernames stripped",
+    )
+    ap.add_argument(
+        "--stream",
+        action="store_true",
+        help="publish state for the OBS overlay (stream.py serve)",
+    )
+    ap.add_argument(
+        "--watch",
+        action="store_true",
+        help="live in-place terminal view instead of a scrolling log",
+    )
     a = ap.parse_args()
 
     llama = None
     if a.policy == "model":
-        llama = Chat(a.url, model=a.model, temperature=a.temperature,
-                     api_key=a.api_key)
+        llama = Chat(a.url, model=a.model, temperature=a.temperature, api_key=a.api_key)
         print("model: %s" % llama.health())
 
     sm = Statmind(a.statmind, quiet=True)
-    agent = Agent(sm, llama=llama, policy=a.policy, cheat=a.cheat,
-                  verbose=not a.watch)
+    agent = Agent(sm, llama=llama, policy=a.policy, cheat=a.cheat, verbose=not a.watch)
     agent.watch = a.watch
     agent.stream = a.stream
     if a.twitch:

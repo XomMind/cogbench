@@ -40,33 +40,75 @@ KMOD_LALT = 0x0100
 
 DOMAIN_RE = re.compile(r"^\[(CMD_DOMAIN_[A-Z_0-9]+)\]")
 BIND_RE = re.compile(
-    r'^(?P<command>CMD_[A-Z_0-9]+)\s+'
+    r"^(?P<command>CMD_[A-Z_0-9]+)\s+"
     r'"(?P<label>[^"]*)"\s+'
-    r'(?P<ctrl>\S+)\s+'
-    r'(?P<shift>\S+)\s+'
-    r'(?P<alt>\S+)\s+'
-    r'(?P<key>\S+)\s*$'
+    r"(?P<ctrl>\S+)\s+"
+    r"(?P<shift>\S+)\s+"
+    r"(?P<alt>\S+)\s+"
+    r"(?P<key>\S+)\s*$"
 )
 
 # Single-character key names whose unicode differs under shift. Cogmind reads
 # text through SDL_keysym.unicode, which the old shim always left at 0.
 SHIFT_MAP = {
-    "1": "!", "2": "@", "3": "#", "4": "$", "5": "%", "6": "^", "7": "&",
-    "8": "*", "9": "(", "0": ")", "-": "_", "=": "+", "[": "{", "]": "}",
-    "\\": "|", ";": ":", "'": '"', ",": "<", ".": ">", "/": "?", "`": "~",
+    "1": "!",
+    "2": "@",
+    "3": "#",
+    "4": "$",
+    "5": "%",
+    "6": "^",
+    "7": "&",
+    "8": "*",
+    "9": "(",
+    "0": ")",
+    "-": "_",
+    "=": "+",
+    "[": "{",
+    "]": "}",
+    "\\": "|",
+    ";": ":",
+    "'": '"',
+    ",": "<",
+    ".": ">",
+    "/": "?",
+    "`": "~",
 }
 
 # keyboard.cfg spells punctuation out; map the names back to characters so we can
 # compute a unicode codepoint for text entry.
 NAME_TO_CHAR = {
-    "SPACE": " ", "EXCLAMATION": "!", "DOUBLEQUOTE": '"', "HASH": "#",
-    "DOLLAR": "$", "PERCENT": "%", "AMPERSAND": "&", "QUOTE": "'",
-    "LEFTPARENTHESIS": "(", "RIGHTPARENTHESIS": ")", "ASTERISK": "*",
-    "PLUS": "+", "COMMA": ",", "MINUS": "-", "PERIOD": ".", "SLASH": "/",
-    "COLON": ":", "SEMICOLON": ";", "LESS": "<", "EQUALS": "=", "GREATER": ">",
-    "QUESTION": "?", "AT": "@", "LEFTBRACKET": "[", "BACKSLASH": "\\",
-    "RIGHTBRACKET": "]", "CARET": "^", "UNDERSCORE": "_", "BACKQUOTE": "`",
-    "RETURN": "\r", "TAB": "\t", "BACKSPACE": "\b",
+    "SPACE": " ",
+    "EXCLAMATION": "!",
+    "DOUBLEQUOTE": '"',
+    "HASH": "#",
+    "DOLLAR": "$",
+    "PERCENT": "%",
+    "AMPERSAND": "&",
+    "QUOTE": "'",
+    "LEFTPARENTHESIS": "(",
+    "RIGHTPARENTHESIS": ")",
+    "ASTERISK": "*",
+    "PLUS": "+",
+    "COMMA": ",",
+    "MINUS": "-",
+    "PERIOD": ".",
+    "SLASH": "/",
+    "COLON": ":",
+    "SEMICOLON": ";",
+    "LESS": "<",
+    "EQUALS": "=",
+    "GREATER": ">",
+    "QUESTION": "?",
+    "AT": "@",
+    "LEFTBRACKET": "[",
+    "BACKSLASH": "\\",
+    "RIGHTBRACKET": "]",
+    "CARET": "^",
+    "UNDERSCORE": "_",
+    "BACKQUOTE": "`",
+    "RETURN": "\r",
+    "TAB": "\t",
+    "BACKSPACE": "\b",
 }
 
 
@@ -156,7 +198,9 @@ def parse_commands(path, keysyms):
             "command": g["command"],
             "label": g["label"],
             "domain": domain,
-            "ctrl": ctrl, "shift": shift, "alt": alt,
+            "ctrl": ctrl,
+            "shift": shift,
+            "alt": alt,
             "key": key,
             "keysym": sym,
             "mods": mods,
@@ -205,8 +249,10 @@ def report(domains, commands, unresolved, keysyms):
                 continue
             k = (b["keysym"], b["mods"])
             if k in seen and seen[k] != b["command"]:
-                print(f"   {d}: {b['key']} mods=0x{b['mods']:04x} -> "
-                      f"{seen[k]} AND {b['command']}")
+                print(
+                    f"   {d}: {b['key']} mods=0x{b['mods']:04x} -> "
+                    f"{seen[k]} AND {b['command']}"
+                )
                 found += 1
             seen.setdefault(k, b["command"])
     if not found:
@@ -220,7 +266,9 @@ def report(domains, commands, unresolved, keysyms):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--user-dir", default=os.path.expanduser("~/Documents/Cogmind/user"))
+    ap.add_argument(
+        "--user-dir", default=os.path.expanduser("~/Documents/Cogmind/user")
+    )
     ap.add_argument("-o", "--out")
     ap.add_argument("--report", action="store_true")
     a = ap.parse_args()
@@ -229,8 +277,10 @@ def main():
     cm = os.path.join(a.user_dir, "commands.cfg")
     for p in (kb, cm):
         if not os.path.exists(p):
-            print(f"missing {p}\nSet exposeKeybinds=1 in advanced.cfg and run the game once.",
-                  file=sys.stderr)
+            print(
+                f"missing {p}\nSet exposeKeybinds=1 in advanced.cfg and run the game once.",
+                file=sys.stderr,
+            )
             return 2
 
     keysyms, by_sym = parse_keyboard(kb)
@@ -249,7 +299,9 @@ def main():
             "source": {"keyboard_cfg": kb, "commands_cfg": cm},
             "keysyms": keysyms,
             "keysym_names": {str(k): v for k, v in by_sym.items()},
-            "domains": {d: sorted({b["command"] for b in v}) for d, v in domains.items()},
+            "domains": {
+                d: sorted({b["command"] for b in v}) for d, v in domains.items()
+            },
             "commands": commands,
         }
         with open(a.out, "w") as f:

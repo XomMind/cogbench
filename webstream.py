@@ -54,18 +54,46 @@ GOP = os.environ.get("COGBENCH_WEB_GOP", str(int(FPS)))
 
 def ffmpeg_argv():
     return [
-        "ffmpeg", "-loglevel", "warning",
-        "-thread_queue_size", "512",
-        "-f", "x11grab", "-draw_mouse", "0",
-        "-framerate", FPS, "-video_size", SIZE, "-i", DISPLAY,
-        "-thread_queue_size", "512",
-        "-f", "pulse", "-i", "cogbench.monitor",
+        "ffmpeg",
+        "-loglevel",
+        "warning",
+        "-thread_queue_size",
+        "512",
+        "-f",
+        "x11grab",
+        "-draw_mouse",
+        "0",
+        "-framerate",
+        FPS,
+        "-video_size",
+        SIZE,
+        "-i",
+        DISPLAY,
+        "-thread_queue_size",
+        "512",
+        "-f",
+        "pulse",
+        "-i",
+        "cogbench.monitor",
         # zerolatency stays. It is what forbids B-frames and both lookaheads,
         # and without it a slower preset would buy its quality back in frames
         # of delay -- which is the one thing this feed exists to avoid.
-        "-c:v", "libx264", "-preset", PRESET, "-tune", "zerolatency",
-        "-crf", CRF, "-pix_fmt", "yuv420p", "-profile:v", "high",
-        "-g", GOP, "-bf", "0",
+        "-c:v",
+        "libx264",
+        "-preset",
+        PRESET,
+        "-tune",
+        "zerolatency",
+        "-crf",
+        CRF,
+        "-pix_fmt",
+        "yuv420p",
+        "-profile:v",
+        "high",
+        "-g",
+        GOP,
+        "-bf",
+        "0",
         # repeat-headers keeps SPS/PPS in band. It matters less for fMP4 than
         # for TS -- the moov carries them -- but costs nothing and makes the
         # stream self-describing if it is ever remuxed.
@@ -75,11 +103,20 @@ def ffmpeg_argv():
         # the corners off letters, so it is turned down rather than off. ref
         # and subme are raised because a static screen references its own past
         # almost perfectly and the extra search is nearly free here.
-        "-x264-params", "keyint=%s:scenecut=0:repeat-headers=1:psy-rd=0:"
-                        "aq-mode=0:deblock=-2,-2:ref=4:subme=9:trellis=2:"
-                        "me=umh" % GOP,
-        "-af", "aresample=async=1000:min_hard_comp=0.100:first_pts=0",
-        "-c:a", "aac", "-b:a", ABR, "-ar", "48000", "-ac", "2",
+        "-x264-params",
+        "keyint=%s:scenecut=0:repeat-headers=1:psy-rd=0:"
+        "aq-mode=0:deblock=-2,-2:ref=4:subme=9:trellis=2:"
+        "me=umh" % GOP,
+        "-af",
+        "aresample=async=1000:min_hard_comp=0.100:first_pts=0",
+        "-c:a",
+        "aac",
+        "-b:a",
+        ABR,
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
         # empty_moov + default_base_moof is the combination browsers expect.
         # The flag is default_base_moof, not default_base_is_moof -- the latter
         # is what the spec calls the bit it sets, and ffmpeg rejects the whole
@@ -87,9 +124,13 @@ def ffmpeg_argv():
         # frag_duration sets how often a fragment is emitted, and that is the
         # latency floor. 200ms is below what anyone notices and still large
         # enough that the per-fragment overhead stays small.
-        "-movflags", "+frag_keyframe+empty_moov+default_base_moof+omit_tfhd_offset",
-        "-frag_duration", "200000",
-        "-f", "mp4", "pipe:1",
+        "-movflags",
+        "+frag_keyframe+empty_moov+default_base_moof+omit_tfhd_offset",
+        "-frag_duration",
+        "200000",
+        "-f",
+        "mp4",
+        "pipe:1",
     ]
 
 
@@ -123,7 +164,7 @@ class Fanout:
     """
 
     def __init__(self):
-        self.init = b""             # ftyp + moov, replayed to every new client
+        self.init = b""  # ftyp + moov, replayed to every new client
         self.lock = threading.Lock()
         # A list, not a set: the clients are deques and a deque is unhashable,
         # so a set silently works until the first viewer connects and then
@@ -161,7 +202,9 @@ class Fanout:
                     # references. Reconnect with a fresh initialization instead.
                     q.clear()
                     q.append(None)
-                    self.clients = [client for client in self.clients if client is not q]
+                    self.clients = [
+                        client for client in self.clients if client is not q
+                    ]
                 else:
                     q.append(chunk)
                     self.bytes_out += len(chunk)
@@ -172,10 +215,15 @@ class Fanout:
             self.reset()
             self.proc = None
             try:
-                self.proc = subprocess.Popen(ffmpeg_argv(), stdout=subprocess.PIPE,
-                                             stderr=subprocess.PIPE, bufsize=1 << 20)
-                threading.Thread(target=_relay_stderr, args=(self.proc.stderr,),
-                                 daemon=True).start()
+                self.proc = subprocess.Popen(
+                    ffmpeg_argv(),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    bufsize=1 << 20,
+                )
+                threading.Thread(
+                    target=_relay_stderr, args=(self.proc.stderr,), daemon=True
+                ).start()
                 self.started = time.time()
                 self._pump(self.proc.stdout)
             except (OSError, ValueError) as exc:
@@ -255,16 +303,24 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self.live()
         if path == "/stat":
             import json
-            body = json.dumps({
-                "clients": len(FAN.clients),
-                "bytes_in": FAN.bytes_in,
-                "bytes_out": FAN.bytes_out,
-                "init_bytes": len(FAN.init),
-                "uptime": round(time.time() - FAN.started, 1),
-                "restarts": FAN.restarts,
-                "encoder": {"preset": PRESET, "crf": CRF, "fps": FPS,
-                            "size": SIZE, "audio": ABR},
-            }).encode()
+
+            body = json.dumps(
+                {
+                    "clients": len(FAN.clients),
+                    "bytes_in": FAN.bytes_in,
+                    "bytes_out": FAN.bytes_out,
+                    "init_bytes": len(FAN.init),
+                    "uptime": round(time.time() - FAN.started, 1),
+                    "restarts": FAN.restarts,
+                    "encoder": {
+                        "preset": PRESET,
+                        "crf": CRF,
+                        "fps": FPS,
+                        "size": SIZE,
+                        "audio": ABR,
+                    },
+                }
+            ).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -318,7 +374,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     return
                 self.chunk(chunk)
         except (BrokenPipeError, ConnectionResetError, OSError):
-            pass                     # the tab was closed
+            pass  # the tab was closed
         finally:
             FAN.drop(q)
 
@@ -352,7 +408,8 @@ def serve(port=PORT):
 
 def main():
     ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("cmd", choices=["serve"])
     ap.add_argument("--port", type=int, default=PORT)
     a = ap.parse_args()

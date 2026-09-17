@@ -32,8 +32,9 @@ import json
 import os
 import re
 
-COG_MINDER = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                          "cog-minder", "src", "json")
+COG_MINDER = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "cog-minder", "src", "json"
+)
 
 
 class Hackdex:
@@ -75,27 +76,39 @@ class Hackdex:
 HACK_PRIORITY = [
     # Direct effects first. These change the floor; the information hacks only
     # describe it.
-    ("Traps(Reprogram)", lambda s: s.get("traps_known"),
-     "turns a trap array on the things chasing you"),
-    ("Traps(Disarm)", lambda s: s.get("traps_known"),
-     "removes the array outright -- Locate only tells you where it is"),
-    ("Layout(Zone)", lambda s: True,
-     "reveals this terminal's zone, which is the exploration the agent is "
-     "otherwise paying for one step at a time"),
-
+    (
+        "Traps(Reprogram)",
+        lambda s: s.get("traps_known"),
+        "turns a trap array on the things chasing you",
+    ),
+    (
+        "Traps(Disarm)",
+        lambda s: s.get("traps_known"),
+        "removes the array outright -- Locate only tells you where it is",
+    ),
+    (
+        "Layout(Zone)",
+        lambda s: True,
+        "reveals this terminal's zone, which is the exploration the agent is "
+        "otherwise paying for one step at a time",
+    ),
     # Then the analyses, cheapest tiers first. Swarmers before Grunts: swarms
     # are what actually kill an under-built Cogmind, and both are tier 1 so the
     # odds are identical -- the ordering is about which knowledge matters.
     ("Analysis(Swarmer)", lambda s: True, "swarms are the early-run killer"),
     ("Analysis(Grunt)", lambda s: True, "the commonest armed class"),
-
     # Hauler locations, so they can be camped rather than stumbled into.
-    ("Enumerate(Transport)", lambda s: (s.get("depth") or -11) >= -9,
-     "haulers carry parts; camping them from -9 up is free salvage"),
-
+    (
+        "Enumerate(Transport)",
+        lambda s: (s.get("depth") or -11) >= -9,
+        "haulers carry parts; camping them from -9 up is free salvage",
+    ),
     # Branch access becomes the run-defining hack in the upper Complex.
-    ("Access(Branch)", lambda s: (s.get("depth") or -11) >= -7,
-     "branches make a run stronger, and some lock out later if missed"),
+    (
+        "Access(Branch)",
+        lambda s: (s.get("depth") or -11) >= -7,
+        "branches make a run stronger, and some lock out later if missed",
+    ),
 ]
 
 # Explicitly not worth a hack attempt on its own.
@@ -159,6 +172,11 @@ if __name__ == "__main__":
             print("   %d. %-22s %3s%%  %s" % (i, n, c, why[:56]))
         print()
     print()
-    for n in ("Enumerate(Transport)", "Access(Branch)", "Traps(Disarm)",
-              "Traps(Locate)", "Layout(Zone)"):
+    for n in (
+        "Enumerate(Transport)",
+        "Access(Branch)",
+        "Traps(Disarm)",
+        "Traps(Locate)",
+        "Layout(Zone)",
+    ):
         print("  %-24s %s%%" % (n, dex.chance(n)))

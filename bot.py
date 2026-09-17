@@ -38,10 +38,14 @@ import episode  # noqa: E402
 
 # (dx, dy) -> the movement tool that produces it
 STEP = {
-    (0, -1): "move_north", (1, -1): "move_northeast",
-    (1, 0): "move_east", (1, 1): "move_southeast",
-    (0, 1): "move_south", (-1, 1): "move_southwest",
-    (-1, 0): "move_west", (-1, -1): "move_northwest",
+    (0, -1): "move_north",
+    (1, -1): "move_northeast",
+    (1, 0): "move_east",
+    (1, 1): "move_southeast",
+    (0, 1): "move_south",
+    (-1, 1): "move_southwest",
+    (-1, 0): "move_west",
+    (-1, -1): "move_northwest",
 }
 
 
@@ -205,13 +209,13 @@ class Bot:
             pl = self.player()
             if pl.get("plausible"):
                 return pl
-            self.sm.tool("key", {"keysym": 13, "unicode": 13})   # RETURN
+            self.sm.tool("key", {"keysym": 13, "unicode": 13})  # RETURN
             time.sleep(0.4)
             if self.player().get("plausible"):
                 continue
-            self.sm.tool("key", {"keysym": 282})                 # F1, closes Commands
+            self.sm.tool("key", {"keysym": 282})  # F1, closes Commands
             time.sleep(0.3)
-            self.sm.tool("key", {"keysym": 27, "unicode": 27})   # ESCAPE, cancels panels
+            self.sm.tool("key", {"keysym": 27, "unicode": 27})  # ESCAPE, cancels panels
             time.sleep(0.3)
         return self.player()
 
@@ -237,17 +241,27 @@ class Bot:
         depth0 = lr["location_depth"]
         pl = self.settled_player()
         if not pl.get("plausible") and not self.clear_blocking_ui():
-            return {"ok": False, "reason": "player never placed (stuck on a screen?)",
-                    "depth": depth0, "steps": self.steps}
+            return {
+                "ok": False,
+                "reason": "player never placed (stuck on a screen?)",
+                "depth": depth0,
+                "steps": self.steps,
+            }
         pl = self.settled_player()
 
         self.load_map()
-        self.say(f"floor depth={depth0} map={self.map['width']}x{self.map['height']} "
-                 f"passable={len(self.passable)} exits={len(self.exits)} "
-                 f"entities={len(self.entities)}")
+        self.say(
+            f"floor depth={depth0} map={self.map['width']}x{self.map['height']} "
+            f"passable={len(self.passable)} exits={len(self.exits)} "
+            f"entities={len(self.entities)}"
+        )
         if not self.exits:
-            return {"ok": False, "reason": "no stairs on this floor's cell table",
-                    "depth": depth0, "steps": self.steps}
+            return {
+                "ok": False,
+                "reason": "no stairs on this floor's cell table",
+                "depth": depth0,
+                "steps": self.steps,
+            }
 
         stuck = 0
         since_replan = 0
@@ -258,19 +272,32 @@ class Bot:
             # makes the player record briefly invalid.
             lr = self.luigi()
             if lr["location_depth"] != depth0:
-                self.say(f"DESCENDED: depth {depth0} -> {lr['location_depth']} "
-                         f"in {self.steps} steps")
-                return {"ok": True, "reason": "depth changed",
-                        "from_depth": depth0, "to_depth": lr["location_depth"],
-                        "steps": self.steps}
+                self.say(
+                    f"DESCENDED: depth {depth0} -> {lr['location_depth']} "
+                    f"in {self.steps} steps"
+                )
+                return {
+                    "ok": True,
+                    "reason": "depth changed",
+                    "from_depth": depth0,
+                    "to_depth": lr["location_depth"],
+                    "steps": self.steps,
+                }
 
             # Death is a scored run end, not an unreadable record.
             ended = watcher.poll()
             if ended is not None:
-                self.say(f"RUN ENDED: {ended.get('source')} "
-                         f"score={ended.get('score')} loc={ended.get('location')}")
-                return {"ok": False, "reason": "run ended", "run_end": ended,
-                        "depth": depth0, "steps": self.steps}
+                self.say(
+                    f"RUN ENDED: {ended.get('source')} "
+                    f"score={ended.get('score')} loc={ended.get('location')}"
+                )
+                return {
+                    "ok": False,
+                    "reason": "run ended",
+                    "run_end": ended,
+                    "depth": depth0,
+                    "steps": self.steps,
+                }
 
             pl = self.settled_player()
             if not pl.get("plausible"):
@@ -281,37 +308,53 @@ class Bot:
                     self.load_map()
                     path = None
                 else:
-                    return {"ok": False,
-                            "reason": "player record unreadable; no depth change, no score "
-                                      "row, and the blocking-UI routine did not clear it",
-                            "depth": depth0, "steps": self.steps}
+                    return {
+                        "ok": False,
+                        "reason": "player record unreadable; no depth change, no score "
+                        "row, and the blocking-UI routine did not clear it",
+                        "depth": depth0,
+                        "steps": self.steps,
+                    }
             here = (pl["x"], pl["y"])
 
             if path is None or not path or since_replan >= replan_every:
                 self.load_map()
                 if not self.exits:
-                    return {"ok": False, "reason": "exits vanished from the cell table",
-                            "depth": depth0, "steps": self.steps}
+                    return {
+                        "ok": False,
+                        "reason": "exits vanished from the cell table",
+                        "depth": depth0,
+                        "steps": self.steps,
+                    }
                 path = self.route(here, self.exits)
                 since_replan = 0
                 if path is None:
                     # Relax in stages before giving up. A robot standing in a
                     # corridor is not "no route", and the blacklist itself can
                     # sever the only corridor once it has a few cells in it.
-                    for kwargs in ({"avoid_entities": False},
-                                   {"avoid_entities": True, "use_blacklist": False},
-                                   {"avoid_entities": False, "use_blacklist": False}):
+                    for kwargs in (
+                        {"avoid_entities": False},
+                        {"avoid_entities": True, "use_blacklist": False},
+                        {"avoid_entities": False, "use_blacklist": False},
+                    ):
                         path = self.route(here, self.exits, **kwargs)
                         if path:
-                            self.say(f"  planned {len(path)} steps from {here} "
-                                     f"with {kwargs}")
+                            self.say(
+                                f"  planned {len(path)} steps from {here} "
+                                f"with {kwargs}"
+                            )
                             break
                     if path is None:
-                        return {"ok": False,
-                                "reason": f"no route from {here} to any of {self.exits[:4]} "
-                                          f"even unrestricted",
-                                "depth": depth0, "steps": self.steps}
-                    self.say(f"  planned {len(path)} steps from {here} (through entities)")
+                        return {
+                            "ok": False,
+                            "reason": f"no route from {here} to any of {self.exits[:4]} "
+                            f"even unrestricted",
+                            "depth": depth0,
+                            "steps": self.steps,
+                        }
+                    self.say(
+                        f"  planned {len(path)} steps from {here} (through entities)"
+                    )
                 else:
                     self.say(f"  planned {len(path)} steps from {here}")
 
@@ -326,22 +369,36 @@ class Bot:
             else:
                 stuck += 1
                 self.blocked.add(nxt)
-                self.say(f"  blocked at {here} heading {nxt}; avoiding it "
-                         f"({len(self.blocked)} cells blacklisted)")
+                self.say(
+                    f"  blocked at {here} heading {nxt}; avoiding it "
+                    f"({len(self.blocked)} cells blacklisted)"
+                )
                 path = None
                 if stuck >= 25:
-                    return {"ok": False,
-                            "reason": f"stuck near {here}: {stuck} failed moves, "
-                                      f"{len(self.blocked)} cells blacklisted",
-                            "depth": depth0, "steps": self.steps}
-        return {"ok": False, "reason": f"step budget {max_steps} exhausted",
-                "depth": depth0, "steps": self.steps}
+                    return {
+                        "ok": False,
+                        "reason": f"stuck near {here}: {stuck} failed moves, "
+                        f"{len(self.blocked)} cells blacklisted",
+                        "depth": depth0,
+                        "steps": self.steps,
+                    }
+        return {
+            "ok": False,
+            "reason": f"step budget {max_steps} exhausted",
+            "depth": depth0,
+            "steps": self.steps,
+        }
 
 
 def main():
     ap = argparse.ArgumentParser(description="scripted Cogmind descent bot")
-    ap.add_argument("--statmind", default=os.environ.get(
-        "STATMIND_BIN", "/Users/heni/genAI/cogbench/StatMind/target/release/statmind"))
+    ap.add_argument(
+        "--statmind",
+        default=os.environ.get(
+            "STATMIND_BIN",
+            "/Users/heni/genAI/cogbench/StatMind/target/release/statmind",
+        ),
+    )
     ap.add_argument("--floors", type=int, default=1, help="how many floors to descend")
     ap.add_argument("--max-steps", type=int, default=400, help="budget per floor")
     a = ap.parse_args()
@@ -361,7 +418,9 @@ def main():
         if not r.get("ok"):
             break
         bot.steps = 0
-    print(f"\n=== summary ({time.time() - t0:.0f}s, {sum(x.get('steps',0) for x in results)} steps) ===")
+    print(
+        f"\n=== summary ({time.time() - t0:.0f}s, {sum(x.get('steps',0) for x in results)} steps) ==="
+    )
     for i, r in enumerate(results, 1):
         print(f"  floor {i}: {'OK  ' if r.get('ok') else 'FAIL'}  {r.get('reason')}")
     return 0 if results and results[-1].get("ok") else 1

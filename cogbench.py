@@ -31,8 +31,14 @@ import statdump
 SOCK = os.environ.get("COGBENCH_SOCK", "/tmp/cogbench.sock")
 
 DIRS = {
-    "n": "move_north",  "ne": "move_northeast", "e": "move_east", "se": "move_southeast",
-    "s": "move_south",  "sw": "move_southwest", "w": "move_west", "nw": "move_northwest",
+    "n": "move_north",
+    "ne": "move_northeast",
+    "e": "move_east",
+    "se": "move_southeast",
+    "s": "move_south",
+    "sw": "move_southwest",
+    "w": "move_west",
+    "nw": "move_northwest",
 }
 
 ACTIONS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "actions.json")
@@ -40,19 +46,19 @@ ACTIONS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "actions
 # Friendly names for the gameplay commands worth having a short verb for.
 # Everything else is reachable as `cmd <CMD_NAME>`; run `actions` to list them.
 ALIASES = {
-    "get":       "CMD_BS_DEFAULT_GET",
+    "get": "CMD_BS_DEFAULT_GET",
     "getattach": "CMD_BS_DEFAULT_GET_ATTACH",
-    "wait":      "CMD_BS_DEFAULT_WAIT",
-    "autopath":  "CMD_BS_DEFAULT_KEYBOARD_AUTOPATH",
-    "exits":     "CMD_BS_DEFAULT_LABEL_EXITS",
-    "enemies":   "CMD_BS_DEFAULT_LABEL_ENEMIES",
-    "partslabel":"CMD_BS_DEFAULT_LABEL_PARTS",
-    "status":    "CMD_BS_DEFAULT_STATUS",
-    "intel":     "CMD_BS_DEFAULT_INTEL",
-    "dumpmap":   "CMD_BS_DEFAULT_OUTPUT_MAP",
+    "wait": "CMD_BS_DEFAULT_WAIT",
+    "autopath": "CMD_BS_DEFAULT_KEYBOARD_AUTOPATH",
+    "exits": "CMD_BS_DEFAULT_LABEL_EXITS",
+    "enemies": "CMD_BS_DEFAULT_LABEL_ENEMIES",
+    "partslabel": "CMD_BS_DEFAULT_LABEL_PARTS",
+    "status": "CMD_BS_DEFAULT_STATUS",
+    "intel": "CMD_BS_DEFAULT_INTEL",
+    "dumpmap": "CMD_BS_DEFAULT_OUTPUT_MAP",
     "detachall": "CMD_BS_DEFAULT_DETACH_ALL",
-    "worldmap":  "CMD_BS_DEFAULT_WORLD_MAP",
-    "up":        "CMD_BS_DEFAULT_MOVE_UP",
+    "worldmap": "CMD_BS_DEFAULT_WORLD_MAP",
+    "up": "CMD_BS_DEFAULT_MOVE_UP",
 }
 
 RUN_DIRS = {d: f"CMD_BS_DEFAULT_RUN_{d.upper()}" for d in DIRS}
@@ -65,7 +71,8 @@ def load_actions():
         return json.load(f)
 
 
-HELP = """commands:
+HELP = (
+    """commands:
   look [w] [h]     render the map around Cogmind (default 80x30)
   state            raw LuigiAI state as JSON (tile list is empty on b17.1)
   probe <x> <y>    dump one cell's raw bytes + decoded fields (calibration)
@@ -85,10 +92,14 @@ HELP = """commands:
   raw <tool> [json]     call any statmind MCP tool by name
   help | quit
 
-aliases: """ + " ".join(sorted(ALIASES)) + """
+aliases: """
+    + " ".join(sorted(ALIASES))
+    + """
 """
+)
 
 # ---------------------------------------------------------------- rendering
+
 
 def _glyph(cell_name):
     """Cell names are composed at runtime from a prefix plus a map tag
@@ -149,7 +160,7 @@ def render(pl, dmap, vw=80, vh=30):
     x0 = max(0, min(cx - vw // 2, max(0, w - vw)))
     y0 = max(0, min(cy - vh // 2, max(0, h - vh)))
 
-    out = ["".join(grid[y][x0:x0 + vw]) for y in range(y0, min(h, y0 + vh))]
+    out = ["".join(grid[y][x0 : x0 + vw]) for y in range(y0, min(h, y0 + vh))]
 
     header = (
         f"pos=({px},{py})   map={w}x{h}   view=({x0},{y0})   "
@@ -160,34 +171,49 @@ def render(pl, dmap, vw=80, vh=30):
         "stats unavailable: LuigiAi.player is NULL on b17.1 and the player's "
         "integrity/matter/energy globals are not located yet"
     )
-    legend = ("legend: @ you  r robot  & prop  (space) no cell; "
-              "all other glyphs are the game's own")
+    legend = (
+        "legend: @ you  r robot  & prop  (space) no cell; "
+        "all other glyphs are the game's own"
+    )
     body = "\n".join(out)
     seen = ""
     if marks:
         rows = [f"  ({x},{y}) entity handle 0x{e:08x}" for x, y, e in marks[:40]]
-        seen = ("\nrobots on the map (" + str(len(marks)) + "):\n" + "\n".join(rows))
+        seen = "\nrobots on the map (" + str(len(marks)) + "):\n" + "\n".join(rows)
         if len(marks) > 40:
             seen += f"\n  ... +{len(marks) - 40} more"
-        seen += ("\n  note: these come from Cell+0x48 and are NOT FOV-filtered -- "
-                 "this is ground truth, not what a player would see.")
+        seen += (
+            "\n  note: these come from Cell+0x48 and are NOT FOV-filtered -- "
+            "this is ground truth, not what a player would see."
+        )
     return f"{header}\n{status}\n\n{body}\n\n{legend}{seen}"
 
 
 def render_parts(state):
     inv = state.get("inventory") or []
     if not inv:
-        return (f"inventory empty or unreadable "
-                f"(inventory_size={state['player']['inventory_size']}, "
-                f"item_stride={state['item_stride']}). "
-                f"If this looks wrong, try STATMIND_ITEM_STRIDE=8.")
+        return (
+            f"inventory empty or unreadable "
+            f"(inventory_size={state['player']['inventory_size']}, "
+            f"item_stride={state['item_stride']}). "
+            f"If this looks wrong, try STATMIND_ITEM_STRIDE=8."
+        )
     eq = [i for i in inv if i["equipped"]]
     cargo = [i for i in inv if not i["equipped"]]
+
     def fmt(items):
-        return "\n".join(f"  {i['name'] or '#' + str(i['raw_id'])}  integrity={i['integrity']}"
-                         for i in items) or "  (none)"
-    return (f"stride={state['item_stride']}  size={state['player']['inventory_size']}\n"
-            f"attached:\n{fmt(eq)}\ncargo:\n{fmt(cargo)}")
+        return (
+            "\n".join(
+                f"  {i['name'] or '#' + str(i['raw_id'])}  integrity={i['integrity']}"
+                for i in items
+            )
+            or "  (none)"
+        )
+
+    return (
+        f"stride={state['item_stride']}  size={state['player']['inventory_size']}\n"
+        f"attached:\n{fmt(eq)}\ncargo:\n{fmt(cargo)}"
+    )
 
 
 def render_who(state):
@@ -197,13 +223,16 @@ def render_who(state):
         for t in column:
             if t["entity"] and t["last_fov"] == now:
                 e = t["entity"]
-                rows.append(f"  ({t['x']},{t['y']}) {e['name'] or '#'+str(e['raw_id'])} "
-                            f"rel={e['relation']} integrity={e['integrity']} "
-                            f"state={e['active_state']}")
+                rows.append(
+                    f"  ({t['x']},{t['y']}) {e['name'] or '#'+str(e['raw_id'])} "
+                    f"rel={e['relation']} integrity={e['integrity']} "
+                    f"state={e['active_state']}"
+                )
     return "\n".join(rows) if rows else "  (nothing in FOV)"
 
 
 # ---------------------------------------------------------------- MCP client
+
 
 class Statmind:
     """Minimal JSON-RPC-over-stdio client for `statmind --mcp`."""
@@ -214,9 +243,11 @@ class Statmind:
         # use wants it; a bot loop does not.
         self.proc = subprocess.Popen(
             [binary, "--mcp"],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL if quiet else None,
-            text=True, bufsize=1,
+            text=True,
+            bufsize=1,
         )
         self._id = 0
         self._lock = threading.Lock()
@@ -255,6 +286,7 @@ class Statmind:
 
 # ---------------------------------------------------------------- dispatch
 
+
 def dispatch(sm, line):
     parts = line.split()
     if not parts:
@@ -268,9 +300,11 @@ def dispatch(sm, line):
         vh = int(args[1]) if len(args) > 1 else 30
         pl = sm.player()
         if not pl["plausible"]:
-            return (f"player record at {pl['addr']} looks wrong "
-                    f"(handle=0x{pl['handle']:08X} pos=({pl['x']},{pl['y']})). "
-                    f"Not in a map yet?")
+            return (
+                f"player record at {pl['addr']} looks wrong "
+                f"(handle=0x{pl['handle']:08X} pos=({pl['x']},{pl['y']})). "
+                f"Not in a map yet?"
+            )
         px, py = pl["x"], pl["y"]
         # Bound the read to the viewport. A full 100x100 map is ~0.4s; a viewport
         # is a fraction of that.
@@ -280,7 +314,9 @@ def dispatch(sm, line):
     if cmd == "probe":
         if len(args) < 2:
             return "usage: probe <x> <y>"
-        return json.dumps(sm.tool("probe_cell", {"x": int(args[0]), "y": int(args[1])}), indent=1)
+        return json.dumps(
+            sm.tool("probe_cell", {"x": int(args[0]), "y": int(args[1])}), indent=1
+        )
     if cmd == "state":
         return json.dumps(sm.state(), indent=1)
     if cmd == "parts":
@@ -288,9 +324,12 @@ def dispatch(sm, line):
     if cmd == "who":
         pl = sm.player()
         m = sm.map()
-        rows = [f"  ({c['x']},{c['y']}) handle=0x{c['entity']:08x}"
-                + ("  <== you" if c["entity"] == pl["handle"] else "")
-                for c in m["cells"] if c["entity"]]
+        rows = [
+            f"  ({c['x']},{c['y']}) handle=0x{c['entity']:08x}"
+            + ("  <== you" if c["entity"] == pl["handle"] else "")
+            for c in m["cells"]
+            if c["entity"]
+        ]
         return "\n".join(rows) if rows else "  (no entities on the map)"
     if cmd == "move":
         if not args or args[0].lower() not in DIRS:
@@ -308,15 +347,34 @@ def dispatch(sm, line):
             if filt and filt not in name and filt not in c["domain"]:
                 continue
             b = c["canonical"]
-            chord = "" if not b else "+".join(
-                [m for m, on in (("Ctrl", b["ctrl"]), ("Shift", b["shift"]), ("Alt", b["alt"])) if on]
-                + [b["key"]])
-            rows.append(f"  {name:44} {chord:20} [{c['domain'].replace('CMD_DOMAIN_','')}]")
+            chord = (
+                ""
+                if not b
+                else "+".join(
+                    [
+                        m
+                        for m, on in (
+                            ("Ctrl", b["ctrl"]),
+                            ("Shift", b["shift"]),
+                            ("Alt", b["alt"]),
+                        )
+                        if on
+                    ]
+                    + [b["key"]]
+                )
+            )
+            rows.append(
+                f"  {name:44} {chord:20} [{c['domain'].replace('CMD_DOMAIN_','')}]"
+            )
         if not rows:
             return f"nothing matches {filt!r}"
         head = f"{len(rows)} command(s)"
-        return head + "\n" + "\n".join(rows[:200]) + (
-            f"\n  ... +{len(rows)-200} more" if len(rows) > 200 else "")
+        return (
+            head
+            + "\n"
+            + "\n".join(rows[:200])
+            + (f"\n  ... +{len(rows)-200} more" if len(rows) > 200 else "")
+        )
 
     if cmd in ("cmd", "run") or cmd in ALIASES:
         acts = load_actions()
@@ -336,14 +394,25 @@ def dispatch(sm, line):
         if not c:
             near = [n for n in acts["commands"] if target in n][:8]
             return f"unknown command {target}" + (
-                "\ndid you mean:\n  " + "\n  ".join(near) if near else "")
+                "\ndid you mean:\n  " + "\n  ".join(near) if near else ""
+            )
         b = c["canonical"]
         if not b:
             return f"{target} has no usable binding"
-        return sm.tool("key", {
-            "keysym": b["keysym"], "ctrl": b["ctrl"], "shift": b["shift"],
-            "alt": b["alt"], "unicode": b["unicode"], "repeat": 1,
-        }) + f"\n  ({target} = {b['key']}, domain {c['domain']})"
+        return (
+            sm.tool(
+                "key",
+                {
+                    "keysym": b["keysym"],
+                    "ctrl": b["ctrl"],
+                    "shift": b["shift"],
+                    "alt": b["alt"],
+                    "unicode": b["unicode"],
+                    "repeat": 1,
+                },
+            )
+            + f"\n  ({target} = {b['key']}, domain {c['domain']})"
+        )
 
     if cmd == "key":
         if not args:
@@ -363,9 +432,16 @@ def dispatch(sm, line):
         if 0x20 <= sym < 0x7F:
             ch = chr(sym)
             uni = ord(ch.upper() if shift and ch.isalpha() else ch)
-        return sm.tool("key", {"keysym": sym, "ctrl": "ctrl" in flags,
-                               "shift": shift, "alt": "alt" in flags,
-                               "unicode": uni})
+        return sm.tool(
+            "key",
+            {
+                "keysym": sym,
+                "ctrl": "ctrl" in flags,
+                "shift": shift,
+                "alt": "alt" in flags,
+                "unicode": uni,
+            },
+        )
 
     if cmd == "text":
         if not args:
@@ -380,8 +456,14 @@ def dispatch(sm, line):
     if cmd == "click":
         if len(args) < 2:
             return "usage: click <x> <y> [button]"
-        return sm.tool("mouse_click", {"x": int(args[0]), "y": int(args[1]),
-                                       "button": int(args[2]) if len(args) > 2 else 1})
+        return sm.tool(
+            "mouse_click",
+            {
+                "x": int(args[0]),
+                "y": int(args[1]),
+                "button": int(args[2]) if len(args) > 2 else 1,
+            },
+        )
 
     if cmd == "dump":
         # One round trip gets an observation the memory reader cannot produce:
@@ -398,8 +480,10 @@ def dispatch(sm, line):
         if not os.path.exists(js):
             # jsonStatDump=0 leaves only the text version; say so rather than
             # reporting an empty observation.
-            return ("wrote %s but no JSON alongside it -- set jsonStatDump=1 in "
-                    "the profile's advanced.cfg" % (path or "<no path returned>"))
+            return (
+                "wrote %s but no JSON alongside it -- set jsonStatDump=1 in "
+                "the profile's advanced.cfg" % (path or "<no path returned>")
+            )
         dump = statdump.load(js)
         if args and args[0] == "path":
             return js
@@ -417,12 +501,16 @@ def dispatch(sm, line):
             except ValueError as e:
                 return "raw: arguments must be a JSON object (%s)" % e
             if not isinstance(payload, dict):
-                return "raw: arguments must be a JSON object, not %s" % type(payload).__name__
+                return (
+                    "raw: arguments must be a JSON object, not %s"
+                    % type(payload).__name__
+                )
         return sm.tool(args[0], payload)
     return f"unknown command: {cmd}\n{HELP}"
 
 
 # ---------------------------------------------------------------- transports
+
 
 def serve(binary):
     if os.path.exists(SOCK):
@@ -454,7 +542,9 @@ def send(cmd):
     try:
         s.connect(SOCK)
     except (FileNotFoundError, ConnectionRefusedError):
-        print(f"no daemon on {SOCK} -- start it with: cogbench.py daemon", file=sys.stderr)
+        print(
+            f"no daemon on {SOCK} -- start it with: cogbench.py daemon", file=sys.stderr
+        )
         return 2
     s.sendall((json.dumps({"cmd": cmd}) + "\n").encode())
     reply = json.loads(s.makefile("r").readline())
@@ -479,8 +569,11 @@ def repl():
 def main():
     ap = argparse.ArgumentParser(description="shell over the Cogmind LuigiAI harness")
     ap.add_argument("command", nargs="*", help="command, or 'daemon' / 'repl'")
-    ap.add_argument("--statmind", default=os.environ.get("STATMIND_BIN", "statmind"),
-                    help="path to the statmind binary")
+    ap.add_argument(
+        "--statmind",
+        default=os.environ.get("STATMIND_BIN", "statmind"),
+        help="path to the statmind binary",
+    )
     a = ap.parse_args()
 
     if not a.command:

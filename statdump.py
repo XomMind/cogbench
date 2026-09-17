@@ -79,7 +79,7 @@ def wine_path_to_host(p):
     """
     p = p.replace("\\", "/")
     if len(p) > 1 and p[1] == ":":
-        p = p[2:]              # drop the Wine drive letter; Z: is the host root
+        p = p[2:]  # drop the Wine drive letter; Z: is the host root
     return p
 
 
@@ -103,16 +103,20 @@ def prune(profile=PROFILE, keep=20):
     """
     if os.path.realpath(profile) == os.path.realpath(PLAYER_PROFILE):
         raise SystemExit("refusing to prune the player's own profile: %s" % profile)
-    files = sorted(glob.glob(os.path.join(profile, "dumps", "*")),
-                   key=os.path.getmtime, reverse=True)
+    files = sorted(
+        glob.glob(os.path.join(profile, "dumps", "*")),
+        key=os.path.getmtime,
+        reverse=True,
+    )
     # Two files per dump, so keep twice as many paths as dumps requested.
-    doomed = files[keep * 2:]
+    doomed = files[keep * 2 :]
     for f in doomed:
         os.unlink(f)
     return len(doomed)
 
 
 # ------------------------------------------------------------------------ map
+
 
 def map_grid(dump, player_x, player_y):
     """`map.lines` as (origin_x, origin_y, rows).
@@ -143,7 +147,7 @@ def find_glyph(dump, glyph):
     for r, line in enumerate(lines):
         for c, ch in enumerate(line):
             if ch == glyph:
-                out.append((c - at[0], r - at[1]))   # offsets from the player
+                out.append((c - at[0], r - at[1]))  # offsets from the player
     return out
 
 
@@ -156,6 +160,7 @@ def known_cells(dump):
 
 
 # ----------------------------------------------------------------- observation
+
 
 def observation(dump):
     """The dump reduced to what an agent needs, with the noise dropped.
@@ -172,8 +177,10 @@ def observation(dump):
 
     def var(name, default_max=0):
         v = cog.get(name, {})
-        return {"current": v.get("current", 0),
-                "maximum": v.get("maximum", default_max)}
+        return {
+            "current": v.get("current", 0),
+            "maximum": v.get("maximum", default_max),
+        }
 
     return {
         "run": {
@@ -205,11 +212,14 @@ def observation(dump):
             for sect in ("power", "propulsion", "utility", "weapon", "inventory")
         },
         "turns": {
-            "passed": dump.get("stats", {}).get("exploration", {})
-                          .get("turnsPassed", 0),
+            "passed": dump.get("stats", {})
+            .get("exploration", {})
+            .get("turnsPassed", 0),
             "actions": dump.get("stats", {}).get("actions", {}).get("total", {}),
-            "spaces_moved": dump.get("stats", {}).get("exploration", {})
-                                .get("spacesMoved", {}).get("overall", 0),
+            "spaces_moved": dump.get("stats", {})
+            .get("exploration", {})
+            .get("spacesMoved", {})
+            .get("overall", 0),
         },
         "messages": dump.get("lastMessages", {}).get("messages", []),
         "map": {
@@ -219,8 +229,10 @@ def observation(dump):
             "exits_relative_to_player": find_glyph(dump, "<"),
         },
         "route": [
-            {"depth": e.get("location", {}).get("depth"),
-             "map": e.get("location", {}).get("map")}
+            {
+                "depth": e.get("location", {}).get("depth"),
+                "map": e.get("location", {}).get("map"),
+            }
             for e in dump.get("route", {}).get("entries", [])
         ],
     }
@@ -228,15 +240,18 @@ def observation(dump):
 
 # ------------------------------------------------------------------------ main
 
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("cmd", choices=["obs", "map", "raw", "path", "prune"])
     ap.add_argument("file", nargs="?", help="dump .json (default: newest)")
     ap.add_argument("--profile", default=PROFILE)
-    ap.add_argument("--player", help="PLAYER_X,PLAYER_Y, to label map rows with "
-                                     "game coordinates")
-    ap.add_argument("--keep", type=int, default=20,
-                    help="dumps to keep when pruning (default 20)")
+    ap.add_argument(
+        "--player", help="PLAYER_X,PLAYER_Y, to label map rows with " "game coordinates"
+    )
+    ap.add_argument(
+        "--keep", type=int, default=20, help="dumps to keep when pruning (default 20)"
+    )
     a = ap.parse_args()
 
     if a.cmd == "prune":
@@ -245,8 +260,7 @@ def main():
 
     path = a.file or latest(a.profile)
     if not path:
-        raise SystemExit("no dumps under %s/dumps -- call stat_dump first"
-                         % a.profile)
+        raise SystemExit("no dumps under %s/dumps -- call stat_dump first" % a.profile)
 
     if a.cmd == "path":
         print(path)
@@ -264,8 +278,10 @@ def main():
         if a.player:
             px, py = (int(v) for v in a.player.split(","))
             ox, oy = px - MAP_CENTRE, py - MAP_CENTRE
-            print("origin (%d,%d); game_x = col + %d, game_y = row + %d"
-                  % (ox, oy, ox, oy))
+            print(
+                "origin (%d,%d); game_x = col + %d, game_y = row + %d"
+                % (ox, oy, ox, oy)
+            )
             for r, line in enumerate(lines):
                 print("%3d |%s|" % (oy + r, line))
         else:

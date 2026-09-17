@@ -37,8 +37,9 @@ the more the benchmark is used -- which is the point.
 import json
 import os
 
-DEFAULT_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           "data", "trace_observations.jsonl")
+DEFAULT_LOG = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "data", "trace_observations.jsonl"
+)
 
 # Until the tail is known, only hack while the trace is below this. Chosen to be
 # safe rather than clever: no single increment observed in Cogmind discussion is
@@ -60,10 +61,10 @@ COLD_START_CEILING = 25
 # 60 x 2 is 120, which exceeds the range, so the model refused to hack even at
 # a trace of 0 -- where no observed jump can possibly reach 100. Scaling a jump
 # that is already most of the scale produces nonsense.
-PAD_SCALE = 20.0     # padding at one sample, decaying as 1/sqrt(n)
-PAD_FLOOR = 3        # never trust the observed maximum as a hard bound
-MAX_HEADROOM = 99    # a first attempt from 0 is always allowed, since no jump
-                     # can reach 100 from zero
+PAD_SCALE = 20.0  # padding at one sample, decaying as 1/sqrt(n)
+PAD_FLOOR = 3  # never trust the observed maximum as a hard bound
+MAX_HEADROOM = 99  # a first attempt from 0 is always allowed, since no jump
+# can reach 100 from zero
 
 # Below this many samples the learned estimate is not allowed to be *bolder*
 # than the cold-start rule.
@@ -112,9 +113,11 @@ class TraceModel:
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         with open(self.path, "a") as f:
             f.write(json.dumps(rec) + "\n")
-        if rec.get("attempted") is not False and \
-                rec.get("trace_after") is not None and \
-                rec.get("trace_before") is not None:
+        if (
+            rec.get("attempted") is not False
+            and rec.get("trace_after") is not None
+            and rec.get("trace_before") is not None
+        ):
             self.increments.append(rec["trace_after"] - rec["trace_before"])
 
     @property
@@ -129,7 +132,7 @@ class TraceModel:
         better characterised: wide when it is a guess, narrow once measured."""
         if not self.increments:
             return None
-        return max(PAD_FLOOR, int(round(PAD_SCALE / (self.samples ** 0.5))))
+        return max(PAD_FLOOR, int(round(PAD_SCALE / (self.samples**0.5))))
 
     def headroom(self):
         """How much trace to leave unspent before stopping."""
@@ -152,27 +155,38 @@ class TraceModel:
         if self.samples == 0:
             if trace < COLD_START_CEILING:
                 return True, "cold start: below the %d%% ceiling" % COLD_START_CEILING
-            return False, ("cold start: %d%% with no increment data -- "
-                           "stopping rather than guessing" % trace)
+            return False, (
+                "cold start: %d%% with no increment data -- "
+                "stopping rather than guessing" % trace
+            )
         room = self.headroom()
         # Never let a thin sample authorise something cold start would refuse.
         if self.samples < MIN_SAMPLES_TO_LOOSEN and trace >= COLD_START_CEILING:
-            return False, ("%d%% with only %d samples -- holding the cold-start "
-                           "ceiling of %d%% until the tail is sampled"
-                           % (trace, self.samples, COLD_START_CEILING))
+            return False, (
+                "%d%% with only %d samples -- holding the cold-start "
+                "ceiling of %d%% until the tail is sampled"
+                % (trace, self.samples, COLD_START_CEILING)
+            )
         if trace + room >= 100:
-            return False, ("%d%% + worst jump %d + pad %d (= %d) reaches 100"
-                           % (trace, self.worst(), self.pad(), room))
-        return True, ("%d%%, headroom %d (worst %d + pad %d over %d samples)"
-                      % (trace, room, self.worst(), self.pad(), self.samples))
+            return False, (
+                "%d%% + worst jump %d + pad %d (= %d) reaches 100"
+                % (trace, self.worst(), self.pad(), room)
+            )
+        return True, (
+            "%d%%, headroom %d (worst %d + pad %d over %d samples)"
+            % (trace, room, self.worst(), self.pad(), self.samples)
+        )
 
     def summary(self):
         if not self.increments:
             return "no observations yet (cold start ceiling %d%%)" % COLD_START_CEILING
         nz = [i for i in self.increments if i > 0]
-        return ("%d attempts, %d moved the trace, worst jump %d, mean move %.1f"
-                % (self.samples, len(nz), max(self.increments),
-                   sum(nz) / len(nz) if nz else 0.0))
+        return "%d attempts, %d moved the trace, worst jump %d, mean move %.1f" % (
+            self.samples,
+            len(nz),
+            max(self.increments),
+            sum(nz) / len(nz) if nz else 0.0,
+        )
 
 
 if __name__ == "__main__":

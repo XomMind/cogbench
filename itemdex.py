@@ -20,8 +20,9 @@ building a retrieval system to hold a large one.
 import json
 import os
 
-COG_MINDER = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                          "cog-minder", "src", "json")
+COG_MINDER = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "cog-minder", "src", "json"
+)
 
 # Cogmind's combat classes -- the damage types that stack usefully. Kinetic is
 # the recommended default: ballistic guns are the most common early drop, so
@@ -92,6 +93,7 @@ class Itemdex:
 
 # ------------------------------------------------------------------ the rules
 
+
 def best_in_inventory(dex, inventory, predicate, key):
     """Highest-`key` inventory entry matching `predicate`, as (index, name)."""
     best = None
@@ -112,8 +114,12 @@ def treads_in_materials(dex, obs, sit):
     worn = obs["parts"]["propulsion"]["attached"]
     if worn and all(dex.is_treads(n) for n in worn):
         return None
-    pick = best_in_inventory(dex, obs["parts"]["inventory"]["attached"],
-                             lambda d, n: d.is_treads(n), lambda d, n: d.support(n))
+    pick = best_in_inventory(
+        dex,
+        obs["parts"]["inventory"]["attached"],
+        lambda d, n: d.is_treads(n),
+        lambda d, n: d.support(n),
+    )
     return ("equip", pick[0], pick[1], "treads for Materials") if pick else None
 
 
@@ -125,14 +131,18 @@ def biggest_storage(dex, obs, sit):
     on that floor."""
     utility = obs["parts"]["utility"]
     worn = [n for n in utility["attached"] if dex.is_storage(n)]
-    pick = best_in_inventory(dex, obs["parts"]["inventory"]["attached"],
-                             lambda d, n: d.is_storage(n), lambda d, n: d.rating(n))
+    pick = best_in_inventory(
+        dex,
+        obs["parts"]["inventory"]["attached"],
+        lambda d, n: d.is_storage(n),
+        lambda d, n: d.rating(n),
+    )
     if not pick:
         return None
     if worn and max(dex.rating(n) for n in worn) >= dex.rating(pick[1]):
         return None
     if len(utility["attached"]) >= utility["slots"] and not worn:
-        return None          # no room and nothing to displace
+        return None  # no room and nothing to displace
     return ("equip", pick[0], pick[1], "larger storage unit")
 
 
@@ -147,13 +157,14 @@ def stack_damage_type(dex, obs, sit):
     if len(worn) >= weapon["slots"]:
         types = {dex.damage_type(n) for n in worn if dex.damage_type(n)}
         if len(types) <= 1:
-            return None      # already stacked
+            return None  # already stacked
     pick = best_in_inventory(
-        dex, obs["parts"]["inventory"]["attached"],
+        dex,
+        obs["parts"]["inventory"]["attached"],
         lambda d, n: d.slot(n) == "Weapon" and d.damage_type(n) == PREFERRED_DAMAGE,
-        lambda d, n: d.rating(n))
-    return ("equip", pick[0], pick[1],
-            "stack %s" % PREFERRED_DAMAGE) if pick else None
+        lambda d, n: d.rating(n),
+    )
+    return ("equip", pick[0], pick[1], "stack %s" % PREFERRED_DAMAGE) if pick else None
 
 
 def pocket_launcher(dex, obs, sit):
@@ -166,8 +177,9 @@ def pocket_launcher(dex, obs, sit):
     worn = obs["parts"]["weapon"]["attached"]
     swarmed = (sit.get("hostiles") or 0) >= 3 and sit.get("under_attack")
     if swarmed:
-        pick = best_in_inventory(dex, inv, lambda d, n: d.is_launcher(n),
-                                 lambda d, n: d.rating(n))
+        pick = best_in_inventory(
+            dex, inv, lambda d, n: d.is_launcher(n), lambda d, n: d.rating(n)
+        )
         if pick and not any(dex.is_launcher(n) for n in worn):
             return ("equip", pick[0], pick[1], "launcher for the swarm")
     return None
@@ -196,8 +208,21 @@ def next_build_action(dex, obs, sit):
 if __name__ == "__main__":
     dex = Itemdex()
     print("loaded %d items" % len(dex))
-    for n in ("Lgt. Treads", "Sml. Storage Unit", "Assault Rifle",
-              "EM Pulse Gun", "Sml. Laser"):
-        print("  %-20s slot=%-11s type=%-15s dmg=%-12s support=%-4s rating=%s"
-              % (n, dex.slot(n), dex.type(n), dex.damage_type(n),
-                 dex.support(n), dex.rating(n)))
+    for n in (
+        "Lgt. Treads",
+        "Sml. Storage Unit",
+        "Assault Rifle",
+        "EM Pulse Gun",
+        "Sml. Laser",
+    ):
+        print(
+            "  %-20s slot=%-11s type=%-15s dmg=%-12s support=%-4s rating=%s"
+            % (
+                n,
+                dex.slot(n),
+                dex.type(n),
+                dex.damage_type(n),
+                dex.support(n),
+                dex.rating(n),
+            )
+        )

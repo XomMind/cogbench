@@ -27,8 +27,8 @@ import threading
 import time
 
 HOST, PORT = "irc.chat.twitch.tv", 6697
-WINDOW = 20 * 60            # how far back "recent" reaches, in seconds
-MAX_LEN = 160               # per message, so one paste cannot eat the prompt
+WINDOW = 20 * 60  # how far back "recent" reaches, in seconds
+MAX_LEN = 160  # per message, so one paste cannot eat the prompt
 KEEP = 400
 
 # `:nick!nick@nick.tmi.twitch.tv PRIVMSG #channel :the message`
@@ -71,7 +71,9 @@ class Chat:
         with socket.create_connection((HOST, PORT), timeout=20) as raw:
             with ctx.wrap_socket(raw, server_hostname=HOST) as sock:
                 nick = "justinfan%d" % random.randint(10000, 99999)
-                sock.sendall(("NICK %s\r\nJOIN #%s\r\n" % (nick, self.channel)).encode())
+                sock.sendall(
+                    ("NICK %s\r\nJOIN #%s\r\n" % (nick, self.channel)).encode()
+                )
                 sock.settimeout(30)
                 self.connected = True
                 buf = b""
@@ -116,12 +118,17 @@ class Chat:
         return out[-limit:]
 
     def status(self):
-        return {"channel": self.channel, "connected": self.connected,
-                "held": len(self.msgs), "errors": self.errors}
+        return {
+            "channel": self.channel,
+            "connected": self.connected,
+            "held": len(self.msgs),
+            "errors": self.errors,
+        }
 
 
 if __name__ == "__main__":
     import sys
+
     c = Chat(sys.argv[1] if len(sys.argv) > 1 else "twitch")
     while True:
         time.sleep(5)
