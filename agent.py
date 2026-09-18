@@ -2306,9 +2306,9 @@ def main():
     )
     ap.add_argument(
         "--url",
-        default=os.environ.get("COGBENCH_URL", "http://127.0.0.1:8000"),
+        default=os.environ.get("COGBENCH_URL", "http://127.0.0.1:8128/v1"),
         help="OpenAI-compatible endpoint, with or without the /v1 suffix "
-        "(default: oMLX on :8000; $COGBENCH_URL overrides)",
+        "(default: ishizuki on :8128; $COGBENCH_URL overrides)",
     )
     ap.add_argument(
         "--api-key",

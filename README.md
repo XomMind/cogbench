@@ -79,7 +79,7 @@ For a direct agent run, execute this where the game and StatMind are available
 (the worker, when using Kubernetes):
 
 ```sh
-export COGBENCH_URL=http://127.0.0.1:8000  # replace with your model endpoint
+export COGBENCH_URL=http://127.0.0.1:8128/v1  # replace with your model endpoint
 python3 agent.py --statmind /usr/local/bin/statmind \
   --policy model --model MODEL_ID --decisions 200 --stream --out result.json
 ```
